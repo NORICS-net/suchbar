@@ -1,0 +1,15 @@
+[package]
+name = "suchbar"
+description = "suchbar - enduser-learnable-language for database queries."
+authors = ["Micha Glave <mig@xilab.net>",]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+
+[lib]
+
+[dependencies]
+anyhow = "1.0.69"
+pest = "2.5.6"
+pest_derive = "2.5.6"
