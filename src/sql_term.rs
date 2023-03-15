@@ -1,37 +1,50 @@
-use crate::op_tree::{CompOp, SField};
-use crate::sql_term::SQLTerm::*;
-use anyhow::bail;
+use crate::comp_op::CompOp;
+use crate::db_field::DbField;
+use crate::error::SuchError;
+use crate::error::SuchError::ParseError;
 use std::fmt::{Display, Formatter};
+use std::ops::Deref;
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
-pub enum SQLTerm {
+pub(crate) enum SQLTerm {
     AND(Vec<SQLTerm>),
     OR(Vec<SQLTerm>),
     NOT(Box<SQLTerm>),
-    VALUE(SField, CompOp, String),
-    LIKE(SField, String),
+    VALUE(DbField, CompOp, String),
+    LIKE(DbField, String),
 }
 
 impl SQLTerm {
-    pub fn to_sql(&self) -> anyhow::Result<String> {
+    pub fn to_sql(&self) -> Result<String, SuchError> {
         use SQLTerm::*;
         match self {
             OR(vec) => explode(vec, " OR "),
             AND(vec) => explode(vec, " AND "),
-            NOT(val) => Ok(format!("NOT {}", val.to_sql()?)),
-            VALUE(f, eq, v) => f.try_sql_eq(*eq, v),
+            NOT(val) => match val.deref() {
+                // NOT( NOT(val)) = val
+                NOT(inner) => inner.to_sql(),
+                _ => Ok(format!("NOT {}", val.to_sql()?)),
+            },
+            VALUE(f, eq, v) => {
+                if v.contains('*') {
+                    f.try_sql_like(v)
+                } else {
+                    f.try_sql_eq(eq, v)
+                }
+            }
             LIKE(f, v) => f.try_sql_like(v),
         }
     }
 }
 
-fn explode(vec: &[SQLTerm], sep: &str) -> anyhow::Result<String> {
+fn explode(vec: &[SQLTerm], sep: &str) -> Result<String, SuchError> {
     let v = vec
         .iter()
         .filter_map(|op| op.to_sql().ok())
         .collect::<Vec<String>>();
     match v.len() {
-        0 => bail!("Empty SQLTerm!"),
+        0 => Err(ParseError("Empty SQLTerm!".to_string())),
         1 => Ok(v[0].clone()),
         _ => Ok(format!("( {} )", v.join(sep))),
     }
@@ -39,7 +52,7 @@ fn explode(vec: &[SQLTerm], sep: &str) -> anyhow::Result<String> {
 
 impl Default for SQLTerm {
     fn default() -> Self {
-        OR(vec![])
+        SQLTerm::OR(vec![])
     }
 }
 

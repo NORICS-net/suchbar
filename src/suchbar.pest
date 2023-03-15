@@ -1,20 +1,23 @@
 // search - section
 
 value = ${ raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
+raw_char = _{ ( ASCII_ALPHANUMERIC | "." | "," | "/" | "\\ " ) }
 /// green
-raw_string = { ( ASCII_ALPHANUMERIC | "." | "," | "-" | "/" | "\\ " )+ }
+raw_string = { ( ASCII_ALPHANUMERIC | "-" ) ~ raw_char+ }
 /// red
 raw_string_interior = { ( !PEEK ~ ANY )* }
-
-starts_with = { "^" }
-ends_with = { "$" }
+    /// pink
+    starts_with = { "^" | "*" }
+    /// pink
+    ends_with = { "$" | "*" }
 /// brown
 from_to = { "-" ~ value }
-term = { starts_with? ~ value ~ (ends_with | from_to )? }
+term = { (value ~ from_to | starts_with? ~ value ~ ends_with?) }
 /// orange
 field_name = ${ ASCII_ALPHA ~ ( ASCII_ALPHANUMERIC | "_" | "-" )+ }
-field = { field_name ~ invert? ~ eq ~ invert? ~ term }
-eq = { "=" | "=>" | "=<" | ">" | "<" }
+    /// white
+    eq = { "=" | "=>" | ">=" | "=<" | "<=" | ">" | "<" | "!=" | "=!" }
+field = { field_name ~ eq ~ term }
 primary = _{ field | term | "(" ~ expr ~ ")" | "{" ~ expr ~ "}" | "[" ~ expr ~ "]" }
 /// cyan
 invert = { "!" | ^"NOT " }
