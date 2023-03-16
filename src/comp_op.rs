@@ -28,7 +28,6 @@ impl Display for CompOp {
                 Gte => ">=",
                 Lt => "<",
                 Lte => "<=",
-                //NotEqual => "!=",
                 NotEqual => panic!("No SQL-representation for CompOp = {self:?}"),
             }
         )
@@ -41,11 +40,15 @@ impl FromStr for CompOp {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "=" => Ok(CompOp::Equal),
+            "==" => Ok(CompOp::Equal),
             ">=" => Ok(CompOp::Gte),
+            "=>" => Ok(CompOp::Gte),
             ">" => Ok(CompOp::Gt),
             "<=" => Ok(CompOp::Lte),
+            "=<" => Ok(CompOp::Lte),
             "<" => Ok(CompOp::Lt),
             "!=" => Ok(CompOp::NotEqual),
+            "=!" => Ok(CompOp::NotEqual),
             _ => Err(ParseError(format!("'{s}' is no comparator!"))),
         }
     }

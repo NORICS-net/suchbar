@@ -59,8 +59,8 @@ impl Suchbar {
     /// expr = { atom ~ (bin_op? ~ atom)* }
     fn parse_expr(&self, expr: Pair<Rule>) -> SuchResult {
         let mut acc = Vec::new();
-        let mut or = true;
-        let mut not = CompOp::Equal;
+        let mut or = false;
+        let mut comp_op = CompOp::Equal;
         for exp in expr.into_inner() {
             //println!("** Suchbar::parse_expr:: {:?}", exp);
             match exp.as_rule() {
@@ -71,11 +71,11 @@ impl Suchbar {
                 }
                 Rule::or => or = true,
                 Rule::and => or = false,
-                Rule::invert => not = !not,
-                Rule::term => acc.push(self.parse_term(None, not, exp)?),
+                Rule::invert => comp_op = !comp_op,
+                Rule::term => acc.push(self.parse_term(None, comp_op, exp)?),
                 Rule::expr => acc.push(self.parse_expr(exp)?),
                 _ => {
-                    println!("=> Suchbar::parse_expr:: {:?}", exp);
+                    println!("=> Suchbar::parse_expr:: {exp:?}");
                 }
             };
         }
@@ -92,9 +92,9 @@ impl Suchbar {
         let mut comp_op = CompOp::default();
         for exp in expr.into_inner() {
             match exp.as_rule() {
-                Rule::invert => not = !not,
-                Rule::field_name => name = exp.as_str(),
                 Rule::eq => comp_op = CompOp::from_str(exp.as_str()).unwrap_or_default(),
+                Rule::field_name => name = exp.as_str(),
+                Rule::invert => not = !not,
                 Rule::term => {
                     return self.parse_term(
                         Some(name),
@@ -103,7 +103,7 @@ impl Suchbar {
                     );
                 }
                 _ => {
-                    println!("=> Suchbar::parse_field:: {:?}", exp);
+                    println!("=> Suchbar::parse_field:: {exp:?}");
                 }
             }
         }
@@ -112,7 +112,7 @@ impl Suchbar {
         )))
     }
 
-    fn parse_term(&self, name: Option<&str>, eq: CompOp, expr: Pair<Rule>) -> SuchResult {
+    fn parse_term(&self, name: Option<&str>, comp_op: CompOp, expr: Pair<Rule>) -> SuchResult {
         let mut value = String::new();
         let mut like_ending = false;
         let mut like_starting = false;
@@ -121,22 +121,22 @@ impl Suchbar {
             match exp.as_rule() {
                 Rule::starts_with => {
                     if exp.as_str() == "*" {
-                        like_ending = true;
-                    } else {
                         like_starting = true;
+                    } else {
+                        like_ending = true;
                     }
                 }
                 Rule::ends_with => {
                     if exp.as_str() == "*" {
-                        like_starting = true;
-                    } else {
                         like_ending = true;
+                    } else {
+                        like_starting = true;
                     }
                 }
                 Rule::from_to => to_val = Self::parse_value(exp.into_inner().next().unwrap()),
                 Rule::value => value = Self::parse_value(exp).unwrap_or_default(),
                 _ => {
-                    println!("=> Suchbar::parse_term:: {:?}", exp);
+                    println!("=> Suchbar::parse_term:: {exp:?}");
                 }
             }
         }
@@ -145,22 +145,27 @@ impl Suchbar {
             .choose_field_vec(name.unwrap_or_default())
             .into_iter()
             .map(|sf| {
-                let val = if like_ending != like_starting {
-                    let value = if like_ending {
+                let val = if like_ending || like_starting {
+                    let value = if like_ending && like_starting {
+                        format!("*{}*", value)
+                    } else if like_starting {
                         format!("*{}", value)
                     } else {
                         format!("{}*", value)
                     };
                     LIKE(sf, value)
+                } else if name.is_none() {
+                    // list of terms means LIKE-search.
+                    LIKE(sf, format!("*{}*", value))
                 } else if to_val.is_some() {
                     AND(vec![
                         VALUE(sf.clone(), CompOp::Gte, value.clone()),
                         VALUE(sf, CompOp::Lte, to_val.clone().unwrap_or_default()),
                     ])
                 } else {
-                    VALUE(sf, eq, value.clone())
+                    VALUE(sf, comp_op, value.clone())
                 };
-                if eq == CompOp::NotEqual {
+                if comp_op == CompOp::NotEqual {
                     NOT(Box::new(val))
                 } else {
                     val
@@ -180,7 +185,7 @@ impl Suchbar {
                     Some(String::from(s))
                 }
                 _ => {
-                    println!("=> Suchbar::parse_value:: {:?}", exp);
+                    println!("=> Suchbar::parse_value:: {exp:?}");
                     None
                 }
             }
@@ -238,7 +243,7 @@ impl Suchbar {
 mod should {
     use super::Suchbar;
     use crate::db_field::DbField;
-    use crate::db_field::DbType::{INTEGER, NUMERIC, VARCHAR};
+    use crate::db_field::DbType::{INTEGER, NUMERIC, TEXT, VARCHAR};
 
     const FIELDS: [DbField; 5] = [
         DbField::new(
@@ -249,9 +254,9 @@ mod should {
         ),
         DbField::new(
             "positionstext",
-            VARCHAR(512),
+            TEXT,
             "READ_OFFER",
-            &["beschreibung", "decr", "description", "ptext"],
+            &["beschreibung", "desc", "description", "ptext"],
         ),
         DbField::new("price", NUMERIC(12, 2), "READ_OFFER", &["preis", "price"]),
         DbField::new("age", INTEGER(0, 150), "READ_OFFER", &["alter", "age"]),
@@ -265,7 +270,7 @@ mod should {
 
     #[test]
     fn parse_query() {
-        let query = r#"ano!=23342 AND (decr=^"irgend ein langer Text!" OR price='35,12'); artnr, ^nummer, age"#;
+        let query = r#"ano!=23342 AND (desc=^"irgend ein langer Text!" OR price='35,12'); artnr, ^nummer, age"#;
         let mut s = Suchbar::new(&FIELDS);
         s.exec(query).expect("This should not panic!");
         assert_eq!(
@@ -281,5 +286,23 @@ mod should {
         let mut s = Suchbar::new(&FIELDS);
         s.exec(query).expect("This should not panic!");
         assert_eq!("  ( age>=10 AND age<=19 )", s.to_sql(""));
+    }
+
+    #[test]
+    fn parse_like_somewhere() {
+        let mut s = Suchbar::new(&FIELDS);
+        let query = r#"*Superman*"#;
+        s.exec(query).expect("This should not panic!");
+        assert_eq!(
+            " WHERE ( artikelnummer LIKE '%Superman%' OR positionstext LIKE '%Superman%' )",
+            s.to_sql("WHERE")
+        );
+        let query = r#"Superman Batman"#;
+        s.exec(query).expect("This should not panic!");
+        assert_eq!(
+            " WHERE ( ( artikelnummer LIKE '%Superman%' OR positionstext LIKE '%Superman%' ) AND \
+            ( artikelnummer LIKE '%Batman%' OR positionstext LIKE '%Batman%' ) )",
+            s.to_sql("WHERE")
+        );
     }
 }

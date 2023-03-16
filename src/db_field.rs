@@ -38,37 +38,27 @@ impl DbField {
 
     /// Transforms the given `val` into a EQ-expression. Replaces symbols into a sql-save query.
     pub(crate) fn try_sql_eq(&self, eq: &CompOp, val: &str) -> Result<String, SuchError> {
-        use std::str::FromStr;
         let Self {
             db_name, db_type, ..
         } = self;
-        let val_sql = val.replace('\'', "''");
 
         match db_type {
-            VARCHAR(a) if *a >= val.len() => Ok(format!("{db_name}{eq}'{val_sql}'")),
-            TEXT => Ok(format!("{db_name}{eq}'{val_sql}'")),
-            BOOL if eq == &CompOp::Equal => Ok(format!(
+            BOOL => Ok(format!(
                 "{db_name}{}",
-                if try_bool(val)? { "" } else { "=false" }
+                if try_bool(val)? == (*eq == CompOp::Equal) {
+                    ""
+                } else {
+                    "=false"
+                }
             )),
-            DATE | TIMESTAMP => Ok(format!("{db_name}{eq}'{val_sql}'")),
-            INTEGER(min, max) => {
-                let cval = val.replace(',', ".");
-                match u64::from_str(&cval) {
-                    Ok(d) if d <= *max && d >= *min => Ok(format!("{db_name}{eq}{cval}")),
-                    _ => Err(ParseError(format!("No Integer value '{val}'"))),
+            NUMERIC(_, _) | INTEGER(_, _) => Ok(format!("{db_name}{eq}{}", db_type.sql_safe(val)?)),
+            _ => {
+                if *eq == CompOp::NotEqual {
+                    Ok(format!("{db_name}='{}'", db_type.sql_safe(val)?))
+                } else {
+                    Ok(format!("{db_name}{eq}'{}'", db_type.sql_safe(val)?))
                 }
             }
-            NUMERIC(len, _) => {
-                let cval = val.replace(',', ".");
-                match f64::from_str(&cval) {
-                    Ok(_) if cval.len() < (len + 1) as usize => Ok(format!("{db_name}{eq}{cval}")),
-                    _ => Err(ParseError(format!("No Numeric value '{val}'"))),
-                }
-            }
-            _ => Err(ParseError(format!(
-                "Don't know how to handle: {db_type:?} = '{val}'"
-            ))),
         }
     }
 
@@ -78,31 +68,7 @@ impl DbField {
         let Self {
             db_name, db_type, ..
         } = self;
-        let escaper = |c: char| match c {
-            '?' => String::from("_"),
-            '*' => String::from("%"),
-            '\'' => String::from("''"),
-            '_' | '%' => format!("\\{c}"),
-            _ => String::from(c),
-        };
-        match db_type {
-            VARCHAR(a) if val.len() <= *a => Ok(format!(
-                "{db_name} LIKE '{}'",
-                val.chars().map(escaper).collect::<String>()
-            )),
-            TEXT => Ok(format!(
-                "{db_name} LIKE '{}'",
-                val.chars().map(escaper).collect::<String>()
-            )),
-            DATE if val.len() <= 10 => Ok(format!(
-                "{db_name} LIKE '{}'",
-                // pre-checking dates is to cumbersome, let the db make its job.
-                val.chars().map(escaper).collect::<String>()
-            )),
-            _ => Err(ParseError(format!(
-                "{db_name} ({db_type:?})'{val}' is not compatible"
-            ))),
-        }
+        Ok(format!("{db_name} LIKE '{}'", db_type.sql_safe(val)?))
     }
 }
 
@@ -115,6 +81,53 @@ pub enum DbType {
     BOOL,
     DATE,
     TIMESTAMP,
+}
+
+impl DbType {
+    pub fn sql_safe(&self, val: &str) -> Result<String, SuchError> {
+        let escaper = |c: char| match c {
+            '?' => String::from("_"),
+            '*' => String::from("%"),
+            '\'' => String::from("''"),
+            '_' | '%' => format!("\\{c}"),
+            _ => String::from(c),
+        };
+        self.checker(val.chars().map(escaper).collect::<String>())
+    }
+
+    fn checker(&self, val: String) -> Result<String, SuchError> {
+        use crate::date_matcher;
+        use std::str::FromStr;
+        match self {
+            VARCHAR(a) => {
+                if val.len() > *a {
+                    return Err(ParseError(format!("Value: '{val}' to long")));
+                }
+                Ok(val)
+            }
+            TEXT => Ok(val),
+            DATE => Ok(val),
+            INTEGER(min, max) => {
+                let cval = val.replace(',', ".");
+                match u64::from_str(&cval) {
+                    Ok(d) if d <= *max && d >= *min => Ok(cval),
+                    _ => Err(ParseError(format!("No Integer value '{val}'"))),
+                }
+            }
+            NUMERIC(len, _) => {
+                let cval = val.replace(',', ".");
+                match f64::from_str(&cval) {
+                    Ok(_) if cval.len() < (len + 1) as usize => Ok(cval),
+                    _ => Err(ParseError(format!("No Numeric value '{val}'"))),
+                }
+            }
+            _ => {
+                return Err(ParseError(format!(
+                    "Don't know how to handle: {self:?} = '{val}'"
+                )))
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

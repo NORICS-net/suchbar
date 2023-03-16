@@ -1,22 +1,22 @@
 // search - section
 
-value = ${ raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
 raw_char = _{ ( ASCII_ALPHANUMERIC | "." | "," | "/" | "\\ " ) }
 /// green
-raw_string = { ( ASCII_ALPHANUMERIC | "-" ) ~ raw_char+ }
+raw_string = @{ ( ASCII_ALPHANUMERIC | "-" ) ~ raw_char+ }
 /// red
 raw_string_interior = { ( !PEEK ~ ANY )* }
+value = ${ raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
+/// brown
+from_to = { ( "-" | ".." ) ~ value }
     /// pink
     starts_with = { "^" | "*" }
     /// pink
     ends_with = { "$" | "*" }
-/// brown
-from_to = { "-" ~ value }
 term = { (value ~ from_to | starts_with? ~ value ~ ends_with?) }
 /// orange
 field_name = ${ ASCII_ALPHA ~ ( ASCII_ALPHANUMERIC | "_" | "-" )+ }
     /// white
-    eq = { "=" | "=>" | ">=" | "=<" | "<=" | ">" | "<" | "!=" | "=!" }
+    eq = { "=!" | "=>" | "=<" | ">=" | "<=" | ">" | "<" | "!=" | "==" | "=" }
 field = { field_name ~ eq ~ term }
 primary = _{ field | term | "(" ~ expr ~ ")" | "{" ~ expr ~ "}" | "[" ~ expr ~ "]" }
 /// cyan
@@ -39,4 +39,4 @@ sort = { ";" ~ ( ","? ~ down? ~ sort_field )+ }
 
 query = _{ SOI ~ expr? ~ sort? ~ EOI }
 
-WHITESPACE = _{ " " }
+ WHITESPACE = _{ " " | "\t" | NEWLINE }

@@ -1,30 +1,36 @@
 # SuchBar - Such-Abfragesprache
 
-Eine von Otto-Normal-Anwendern erlernbare Abfragesprache ähnlich einer Internet-Suchmaschiene.   
+Eine von Otto-Normal-Anwendern erlernbare Abfragesprache ähnlich einer Internet-Suchmaschine.   
 
 Aus einer Anfrage mit
 ```
-artnr=2334232 AND irgend ein Text
+plz=26440-26452 OR (Eisen AND sn!=Hammecke*)
 ```
 wird eine SQL Abfrage erstellt:
 
 ```sql
 SELECT 
-    artnr, field1, field2, field3 
-FROM table_or_view 
-WHERE
-    artnr = "2334232" AND
-    (field1 LIKE '%irgend%ein%Text%' OR 
-        field2 LIKE '%irgend%ein%Text%' OR 
-        field3 LIKE '%irgend%ein%Text%');
+    pa.shortname, pa.description, pa.taxnumber, pb.longname, pb.postcode, pb.city, pb.street 
+FROM partner_partner pa, partner_branchstore pb 
+WHERE pa.id = pb.cmrpartner AND 
+  (
+    ( pb.postcode>='26440' 
+          AND pb.postcode<='26452' 
+    ) OR
+    ( pa.shortname LIKE '%Eisen%' 
+            OR pa.description LIKE '%Eisen%' 
+            OR pa.taxnumber LIKE '%Eisen%' 
+            OR pb.city LIKE '%Eisen%' 
+            OR pb.street LIKE '%Eisen%' 
+    ) AND 
+    NOT pa.shortname LIKE 'Hammecke%' 
+ );
 ```
 
-| Boolean Operator |Alternative Symbol	 | Description                                                                                                                                                                                                                                                                           |
-|:----------------:|:--------:|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-|       AND        |    &&    | 	Requires both terms on either side of the Boolean operator to be present for a match.                                                                                                                                                                                                |
-|       NOT        |    !	    | Requires that the following term not be present.                                                                                                                                                                                                                                      |
-|        OR        | PIPE,PIPE | 	Requires that either term (or both terms) be present for a match.                                                                                                                                                                                                                    |
-|        +	        |          | Requires that the following term be present.                                                                                                                                                                                                                                          |
-|        -	        |          | Prohibits the following term (that is, matches on fields or documents that do not include that term). The - operator is functionally similar to the Boolean operator !. Because it’s used by popular search engines such as Google, it may be more familiar to some user communities. |
+| Boolean Operator |Alternative Symbol	 | Description                                                                         |
+|:----------------:|:------------------:|:---------------------------------------------------------------------------------------|
+|       AND        |         &&         | 	Requires both terms on either side of the Boolean operator to be present for a match. |
+|       NOT        |         !	         | Requires that the following term not be present.                                       |
+|       OR         |    &vert;&vert;    | 	Requires that either term (or both terms) be present for a match.                     |
 
 
