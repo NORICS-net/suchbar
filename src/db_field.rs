@@ -12,6 +12,14 @@ fn try_bool(str: &str) -> Result<bool, SuchError> {
     }
 }
 
+fn date_checker(str: String) -> Result<String, SuchError> {
+    if str.chars().any(|a| !a.is_ascii_digit() && a != '-') {
+        Err(ParseError("No date".to_string()))
+    } else {
+        Ok(str)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DbField {
     pub db_name: &'static str,
@@ -96,7 +104,6 @@ impl DbType {
     }
 
     fn checker(&self, val: String) -> Result<String, SuchError> {
-        use crate::date_matcher;
         use std::str::FromStr;
         match self {
             VARCHAR(a) => {
@@ -106,7 +113,7 @@ impl DbType {
                 Ok(val)
             }
             TEXT => Ok(val),
-            DATE => Ok(val),
+            DATE => date_checker(val),
             INTEGER(min, max) => {
                 let cval = val.replace(',', ".");
                 match u64::from_str(&cval) {

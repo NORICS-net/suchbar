@@ -135,6 +135,7 @@ impl Suchbar {
                 }
                 Rule::from_to => to_val = Self::parse_value(exp.into_inner().next().unwrap()),
                 Rule::value => value = Self::parse_value(exp).unwrap_or_default(),
+                Rule::date => value = exp.as_str().to_string(),
                 _ => {
                     println!("=> Suchbar::parse_term:: {exp:?}");
                 }
@@ -244,8 +245,9 @@ mod should {
     use super::Suchbar;
     use crate::db_field::DbField;
     use crate::db_field::DbType::{INTEGER, NUMERIC, TEXT, VARCHAR};
+    use crate::DbType::DATE;
 
-    const FIELDS: [DbField; 5] = [
+    const FIELDS: [DbField; 6] = [
         DbField::new(
             "artikelnummer",
             VARCHAR(18),
@@ -266,6 +268,7 @@ mod should {
             "READ_OFFER",
             &["number", "nummer", "promille"],
         ),
+        DbField::new("changed", DATE, "READ_OFFER", &["changed", "ch"]),
     ];
 
     #[test]
@@ -304,5 +307,17 @@ mod should {
             ( artikelnummer LIKE '%Batman%' OR positionstext LIKE '%Batman%' ) )",
             s.to_sql("WHERE")
         );
+    }
+
+    #[test]
+    fn parse_iso_dates() {
+        let mut s = Suchbar::new(&FIELDS);
+        let query = r#"ch=2022-12-24"#;
+        s.exec(query).expect("This should not panic!");
+        assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
+
+        let query = r#"ch="2022-12-24""#;
+        s.exec(query).expect("This should not panic!");
+        assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
     }
 }

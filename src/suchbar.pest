@@ -6,13 +6,14 @@ raw_string = @{ ( ASCII_ALPHANUMERIC | "-" ) ~ raw_char+ }
 /// red
 raw_string_interior = { ( !PEEK ~ ANY )* }
 value = ${ raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
+date = ${ ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} }
 /// brown
 from_to = { ( "-" | ".." ) ~ value }
     /// pink
     starts_with = { "^" | "*" }
     /// pink
     ends_with = { "$" | "*" }
-term = { (value ~ from_to | starts_with? ~ value ~ ends_with?) }
+term = { (date | value ~ from_to | starts_with? ~ value ~ ends_with?) }
 /// orange
 field_name = ${ ASCII_ALPHA ~ ( ASCII_ALPHANUMERIC | "_" | "-" )+ }
     /// white
