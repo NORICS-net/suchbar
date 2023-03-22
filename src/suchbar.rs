@@ -147,17 +147,19 @@ impl Suchbar {
             .into_iter()
             .map(|sf| {
                 let val = if like_ending || like_starting {
-                    let value = if like_ending && like_starting {
-                        format!("*{}*", value)
-                    } else if like_starting {
-                        format!("*{}", value)
-                    } else {
-                        format!("{}*", value)
+                    let value = match (like_starting, like_ending) {
+                        (true, false) => format!("*{}", value),
+                        (false, true) => format!("{}*", value),
+                        _ => format!("*{}*", value),
                     };
                     LIKE(sf, value)
                 } else if name.is_none() {
-                    // list of terms means LIKE-search.
-                    LIKE(sf, format!("*{}*", value))
+                    // list of terms means LIKE-search for text-fields.
+                    if sf.is_text() {
+                        LIKE(sf, format!("*{}*", value))
+                    } else {
+                        VALUE(sf, CompOp::Equal, value.clone())
+                    }
                 } else if to_val.is_some() {
                     AND(vec![
                         VALUE(sf.clone(), CompOp::Gte, value.clone()),
@@ -272,7 +274,24 @@ mod should {
     ];
 
     #[test]
-    fn parse_query() {
+    fn parse_integer_query() {
+        let mut s = Suchbar::new(&FIELDS);
+        s.exec("123").expect("This should not panic!");
+        assert_eq!(
+            "  ( artikelnummer LIKE '%123%' OR positionstext LIKE '%123%' OR \
+            price=123 OR age=123 OR promille=123 OR changed='123' )",
+            s.to_sql("")
+        );
+        s.exec("1234").expect("This should not panic!");
+        assert_eq!(
+            "  ( artikelnummer LIKE '%1234%' OR positionstext LIKE '%1234%' \
+            OR price=1234 OR changed='1234' )",
+            s.to_sql("")
+        );
+    }
+
+    #[test]
+    fn parse_misc_query() {
         let query = r#"ano!=23342 AND (desc=^"irgend ein langer Text!" OR price='35,12'); artnr, ^nummer, age"#;
         let mut s = Suchbar::new(&FIELDS);
         s.exec(query).expect("This should not panic!");

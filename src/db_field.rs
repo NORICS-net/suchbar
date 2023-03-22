@@ -78,6 +78,15 @@ impl DbField {
         } = self;
         Ok(format!("{db_name} LIKE '{}'", db_type.sql_safe(val)?))
     }
+
+    pub fn is_text(&self) -> bool {
+        match self.db_type {
+            TEXT => true,
+            VARCHAR(_) => true,
+
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
