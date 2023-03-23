@@ -230,7 +230,7 @@ impl Suchbar {
             String::new()
         } else {
             format!(
-                " SORT BY {}",
+                " ORDER BY {}",
                 self.sort_field
                     .iter()
                     .map(|sf| sf.to_sql())
@@ -297,7 +297,7 @@ mod should {
         s.exec(query).expect("This should not panic!");
         assert_eq!(
             "  ( NOT artikelnummer='23342' AND ( positionstext LIKE 'irgend ein langer Text!%' \
-            OR price=35.12 ) ) SORT BY artikelnummer, promille DESC, age",
+            OR price=35.12 ) ) ORDER BY artikelnummer, promille DESC, age",
             s.to_sql("")
         );
     }
