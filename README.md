@@ -43,7 +43,7 @@ Die zur Suche zur Verfügung stehenden Felder werden angemeldet:
 ## Beispiel
 
 ```rust 
-const DB_FIELDS: [DbField; 6] = [
+const SUCHBAR: Suchbar = Suchbar::new(&[
     DbField::new("pa.shortname", TEXT, "STD", &["sname", "sn"]),
     DbField::new("pa.description", TEXT, "STD", &["desc", "d"]),
     DbField::new(
@@ -55,21 +55,21 @@ const DB_FIELDS: [DbField; 6] = [
     DbField::new("pb.city", VARCHAR(35), "STD", &["city"]),
     DbField::new("pb.street", VARCHAR(55), "STD", &["street", "st"]),
     DbField::new("pb.postcode", VARCHAR(5), "STD", &["plz", "zip"]),
-];
+]);
 
 fn main() {
-    let mut suchbar = Suchbar::new(&DB_FIELDS);
     let suche = "plz=26440-26452 OR (Eisen AND sn!=Hammecke*)";
-    match suchbar.exec(suche) {
-        Ok(()) => {}
+    match SUCHBAR.exec(suche) {
         Err(c) => println!("\n{c}"),
-    }
-    let query = format!(
+        Ok(sr) => {
+        let query = format ! (
         "SELECT pa.shortname, pa.description, pa.taxnumber, \
-        pb.longname, pb.postcode AS INTEGER, pb.city, pb.street \
-        FROM partner_partner pa, partner_branchstore pb \
-        WHERE pa.id = pb.cmrpartner{} LIMIT 20",
-        suchbar.to_sql("AND")
-    );
+                pb.longname, pb.postcode AS INTEGER, pb.city, pb.street \
+                FROM partner_partner pa, partner_branchstore pb \
+                WHERE pa.id = pb.cmrpartner{} LIMIT 20",
+        sr.to_sql("AND")
+        );
+    }
+    }
 }
 ```

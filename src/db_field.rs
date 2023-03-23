@@ -20,6 +20,19 @@ fn date_checker(str: String) -> Result<String, SuchError> {
     }
 }
 
+fn timestamp_checker(str: String) -> Result<String, SuchError> {
+    if str.chars().any(|a| match a {
+        '-' | ':' | ' ' => false,
+        _ => !a.is_ascii_digit(),
+    }) {
+        Err(ParseError("No date".to_string()))
+    } else if str.len() == 10 {
+        Ok(format!("{str} 00:00:00"))
+    } else {
+        Ok(str)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DbField {
     pub db_name: &'static str,
@@ -104,14 +117,10 @@ impl DbType {
     fn checker(&self, val: String) -> Result<String, SuchError> {
         use std::str::FromStr;
         match self {
-            VARCHAR(a) => {
-                if val.len() > *a {
-                    return Err(ParseError(format!("Value: '{val}' to long")));
-                }
-                Ok(val)
-            }
-            TEXT => Ok(val),
+            VARCHAR(a) if val.len() > *a => Err(ParseError(format!("Value: '{val}' to long"))),
+            VARCHAR(_) | TEXT => Ok(val),
             DATE => date_checker(val),
+            TIMESTAMP => timestamp_checker(val),
             INTEGER(min, max) => {
                 let cval = val.replace(',', ".");
                 match u64::from_str(&cval) {
@@ -155,6 +164,7 @@ mod should {
     use crate::db_field::DbField;
     use crate::db_field::DbType::{BOOL, DATE, INTEGER, VARCHAR};
     use crate::sql_term::SQLTerm::*;
+    use crate::DbType::TIMESTAMP;
 
     const ARTIKEL: DbField = DbField::new(
         "article",
@@ -167,6 +177,8 @@ mod should {
         DbField::new("end_date", DATE, "READ_OFFER", &["enddate", "end_date"]);
     const NAME: DbField = DbField::new("ma_active", VARCHAR(32), "READ_OFFER", &["akt"]);
     const PRICE: DbField = DbField::new("price", INTEGER(0, 2000), "READ_OFFER_PRICE", &["price"]);
+    const CHANGED: DbField =
+        DbField::new("changed", TIMESTAMP, "READ_OFFER", &["changed", "updated"]);
 
     #[test]
     fn op_to_sql() {
@@ -185,8 +197,22 @@ mod should {
         );
 
         let df = VALUE(PRICE, CompOp::Equal, "1000.0".into());
-        assert_eq!(df.to_sql().unwrap_or_default(), "");
+        assert!(df.to_sql().is_err());
         let df = VALUE(PRICE, CompOp::Equal, "1000".into());
         assert_eq!(df.to_sql().unwrap_or_default(), "price=1000");
+
+        let df = VALUE(CHANGED, CompOp::Gte, "2022-09-01".into());
+        assert_eq!(
+            df.to_sql().unwrap_or_default(),
+            "changed>='2022-09-01 00:00:00'"
+        );
+        let df = VALUE(CHANGED, CompOp::Lt, "2022-09-01 23:30:00".into());
+        assert_eq!(
+            df.to_sql().unwrap_or_default(),
+            "changed<'2022-09-01 23:30:00'"
+        );
+
+        let df = VALUE(CHANGED, CompOp::Lt, "2022-09-01 23:30:00 MEZ".into());
+        assert!(df.to_sql().is_err());
     }
 }

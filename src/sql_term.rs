@@ -22,19 +22,21 @@ impl SQLTerm {
             OR(vec) => explode(vec, " OR "),
             AND(vec) => explode(vec, " AND "),
             NOT(val) => match val.deref() {
-                // NOT( NOT(val)) = val
+                // NOT( NOT(val)) => val
                 NOT(inner) => inner.to_sql(),
                 _ => Ok(format!("NOT {}", val.to_sql()?)),
             },
-            VALUE(f, eq, v) => {
-                if v.contains('*') {
-                    f.try_sql_like(v)
-                } else {
-                    f.try_sql_eq(eq, v)
-                }
-            }
+            VALUE(f, eq, v) => val_sql(f, eq, v),
             LIKE(f, v) => f.try_sql_like(v),
         }
+    }
+}
+
+fn val_sql(f: &DbField, eq: &CompOp, v: &str) -> Result<String, SuchError> {
+    if v.contains('*') {
+        f.try_sql_like(v)
+    } else {
+        f.try_sql_eq(eq, v)
     }
 }
 

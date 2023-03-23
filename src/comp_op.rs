@@ -28,7 +28,7 @@ impl Display for CompOp {
                 Gte => ">=",
                 Lt => "<",
                 Lte => "<=",
-                NotEqual => "=",
+                NotEqual => "!=",
             }
         )
     }

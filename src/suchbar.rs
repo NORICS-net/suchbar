@@ -1,4 +1,5 @@
 use crate::comp_op::CompOp;
+use crate::comp_op::CompOp::{Equal, NotEqual};
 use crate::db_field::{DbField, SortField};
 use crate::error::SuchError;
 use crate::sql_term::SQLTerm;
@@ -14,32 +15,39 @@ type SuchResult = Result<SQLTerm, SuchError>;
 #[derive(Parser, Debug, Default)]
 #[grammar = "suchbar.pest"]
 pub struct Suchbar {
-    pub db_fields: Vec<DbField>,
-    sql_term: SQLTerm,
-    sort_field: Vec<SortField>,
+    db_fields: &'static [DbField],
+}
+
+pub struct SuchbarResult {
+    pub(crate) sql_term: SQLTerm,
+    pub(crate) sort_field: Vec<SortField>,
 }
 
 impl Suchbar {
-    pub fn new(db_fields: &[DbField]) -> Self {
-        Self {
-            db_fields: db_fields.into(),
-            ..Default::default()
-        }
+    pub const fn new(db_fields: &'static [DbField]) -> Self {
+        Self { db_fields }
     }
 
-    pub fn exec(&mut self, query: impl Into<String>) -> Result<(), SuchError> {
-        self.sql_term = AND(vec![]);
-        self.sort_field = vec![];
+    pub fn explanation(&self) -> String {
+        String::new()
+    }
+
+    pub fn exec(&self, query: impl Into<String>) -> Result<SuchbarResult, SuchError> {
+        let mut sql_term = AND(vec![]);
+        let mut sort_field = vec![];
         let query = query.into();
         let qu = Self::parse(Rule::query, &query)?;
         for expr in qu {
             match expr.as_rule() {
-                Rule::expr => self.sql_term = self.parse_expr(expr)?,
-                Rule::sort => self.sort_field = self.parse_sort(expr),
+                Rule::expr => sql_term = self.parse_expr(expr)?,
+                Rule::sort => sort_field = self.parse_sort(expr),
                 _ => {} //ignore EOI and rest
             }
         }
-        Ok(())
+        Ok(SuchbarResult {
+            sql_term,
+            sort_field,
+        })
     }
 
     fn choose_field(&self, needle: &str) -> Option<DbField> {
@@ -54,7 +62,7 @@ impl Suchbar {
         if let Some(f) = self.choose_field(needle) {
             vec![f]
         } else {
-            self.db_fields.clone()
+            self.db_fields.to_vec()
         }
     }
 
@@ -67,7 +75,7 @@ impl Suchbar {
             //println!("** Suchbar::parse_expr:: {:?}", exp);
             match exp.as_rule() {
                 Rule::field => {
-                    if let Ok(field) = self.parse_field(exp) {
+                    if let Ok(field) = self.parse_field(exp, comp_op) {
                         acc.push(field);
                     }
                 }
@@ -88,11 +96,12 @@ impl Suchbar {
         }
     }
 
-    fn parse_field(&self, expr: Pair<Rule>) -> SuchResult {
+    fn parse_field(&self, expr: Pair<Rule>, not: CompOp) -> SuchResult {
         let mut name = "";
-        let mut not = false;
+        let mut not = not == NotEqual;
         let mut comp_op = CompOp::default();
         for exp in expr.into_inner() {
+            // println!("!!! Suchbar::parse_field:: {exp:?}");
             match exp.as_rule() {
                 Rule::eq => comp_op = CompOp::from_str(exp.as_str()).unwrap_or_default(),
                 Rule::field_name => name = exp.as_str(),
@@ -148,13 +157,17 @@ impl Suchbar {
             .choose_field_vec(name.unwrap_or_default())
             .into_iter()
             .map(|sf| {
-                let val = if like_ending || like_starting {
+                if like_ending || like_starting {
                     let value = match (like_starting, like_ending) {
                         (true, false) => format!("*{}", value),
                         (false, true) => format!("{}*", value),
                         _ => format!("*{}*", value),
                     };
-                    LIKE(sf, value)
+                    if comp_op == NotEqual {
+                        NOT(Box::new(LIKE(sf, value)))
+                    } else {
+                        LIKE(sf, value)
+                    }
                 } else if name.is_none() {
                     // list of terms means LIKE-search for text-fields.
                     if sf.is_text() {
@@ -167,13 +180,10 @@ impl Suchbar {
                         VALUE(sf.clone(), CompOp::Gte, value.clone()),
                         VALUE(sf, CompOp::Lte, to_val.clone().unwrap_or_default()),
                     ])
+                } else if comp_op == NotEqual {
+                    NOT(Box::new(VALUE(sf, Equal, value.clone())))
                 } else {
                     VALUE(sf, comp_op, value.clone())
-                };
-                if comp_op == CompOp::NotEqual {
-                    NOT(Box::new(val))
-                } else {
-                    val
                 }
             })
             .collect()))
@@ -216,7 +226,9 @@ impl Suchbar {
         }
         sort_fields
     }
+}
 
+impl SuchbarResult {
     pub fn to_where(&self) -> Result<String, SuchError> {
         self.sql_term.to_sql()
     }
@@ -251,7 +263,7 @@ mod should {
     use crate::db_field::DbType::{INTEGER, NUMERIC, TEXT, VARCHAR};
     use crate::DbType::DATE;
 
-    const FIELDS: [DbField; 6] = [
+    const SUCHBAR: Suchbar = Suchbar::new(&[
         DbField::new(
             "artikelnummer",
             VARCHAR(18),
@@ -273,27 +285,42 @@ mod should {
             &["number", "nummer", "promille"],
         ),
         DbField::new("changed", DATE, "READ_OFFER", &["changed", "ch"]),
-    ];
+    ]);
 
     #[test]
     fn parse_not_equal() {
-        let mut s = Suchbar::new(&FIELDS);
-        s.exec("age!=123").expect("This should not panic!");
+        let s = SUCHBAR.exec("age!=123").expect("This should not panic!");
         assert_eq!("  NOT age=123", s.to_sql(""));
-        s.exec("ptext!=A").expect("This should not panic!");
+        let s = SUCHBAR.exec("NOT age=123").expect("This should not panic!");
+        assert_eq!("  NOT age=123", s.to_sql(""));
+        let s = SUCHBAR.exec("ptext!=A").expect("This should not panic!");
         assert_eq!("  NOT positionstext='A'", s.to_sql(""));
+
+        let s = SUCHBAR
+            .exec(" ptext != AAA*")
+            .expect("This should not panic!");
+        assert_eq!("  NOT positionstext LIKE 'AAA%'", s.to_sql(""));
+
+        let s = SUCHBAR
+            .exec("NOT ptext == AAA*")
+            .expect("This should not panic!");
+        assert_eq!("  NOT positionstext LIKE 'AAA%'", s.to_sql(""));
+
+        let s = SUCHBAR
+            .exec("NOT ptext != AAA*")
+            .expect("This should not panic!");
+        assert_eq!("  positionstext LIKE 'AAA%'", s.to_sql(""));
     }
 
     #[test]
     fn parse_integer_query() {
-        let mut s = Suchbar::new(&FIELDS);
-        s.exec("123").expect("This should not panic!");
+        let s = SUCHBAR.exec("123").expect("This should not panic!");
         assert_eq!(
             "  ( artikelnummer LIKE '%123%' OR positionstext LIKE '%123%' OR \
             price=123 OR age=123 OR promille=123 OR changed='123' )",
             s.to_sql("")
         );
-        s.exec("1234").expect("This should not panic!");
+        let s = SUCHBAR.exec("1234").expect("This should not panic!");
         assert_eq!(
             "  ( artikelnummer LIKE '%1234%' OR positionstext LIKE '%1234%' \
             OR price=1234 OR changed='1234' )",
@@ -304,8 +331,7 @@ mod should {
     #[test]
     fn parse_misc_query() {
         let query = r#"ano!=23342 AND (desc=^"irgend ein langer Text!" OR price='35,12'); artnr, ^nummer, age"#;
-        let mut s = Suchbar::new(&FIELDS);
-        s.exec(query).expect("This should not panic!");
+        let s = SUCHBAR.exec(query).expect("This should not panic!");
         assert_eq!(
             "  ( NOT artikelnummer='23342' AND ( positionstext LIKE 'irgend ein langer Text!%' \
             OR price=35.12 ) ) ORDER BY artikelnummer, promille DESC, age",
@@ -315,23 +341,21 @@ mod should {
 
     #[test]
     fn parse_from_to_values() {
-        let query = r#"age=10-19"#;
-        let mut s = Suchbar::new(&FIELDS);
-        s.exec(query).expect("This should not panic!");
+        let s = SUCHBAR.exec("age=10-19").expect("This should not panic!");
         assert_eq!("  ( age>=10 AND age<=19 )", s.to_sql(""));
     }
 
     #[test]
     fn parse_like_somewhere() {
-        let mut s = Suchbar::new(&FIELDS);
-        let query = r#"*Superman*"#;
-        s.exec(query).expect("This should not panic!");
+        let s = SUCHBAR.exec("*Superman*").expect("This should not panic!");
         assert_eq!(
             " WHERE ( artikelnummer LIKE '%Superman%' OR positionstext LIKE '%Superman%' )",
             s.to_sql("WHERE")
         );
-        let query = r#"Superman Batman"#;
-        s.exec(query).expect("This should not panic!");
+
+        let s = SUCHBAR
+            .exec("Superman Batman")
+            .expect("This should not panic!");
         assert_eq!(
             " WHERE ( ( artikelnummer LIKE '%Superman%' OR positionstext LIKE '%Superman%' ) AND \
             ( artikelnummer LIKE '%Batman%' OR positionstext LIKE '%Batman%' ) )",
@@ -341,13 +365,14 @@ mod should {
 
     #[test]
     fn parse_iso_dates() {
-        let mut s = Suchbar::new(&FIELDS);
-        let query = r#"ch=2022-12-24"#;
-        s.exec(query).expect("This should not panic!");
+        let s = SUCHBAR
+            .exec("ch=2022-12-24")
+            .expect("This should not panic!");
         assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
 
-        let query = r#"ch="2022-12-24""#;
-        s.exec(query).expect("This should not panic!");
+        let s = SUCHBAR
+            .exec(r#"ch="2022-12-24""#)
+            .expect("This should not panic!");
         assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
     }
 }
