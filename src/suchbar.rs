@@ -28,6 +28,8 @@ impl Suchbar {
     }
 
     pub fn exec(&mut self, query: impl Into<String>) -> Result<(), SuchError> {
+        self.sql_term = AND(vec![]);
+        self.sort_field = vec![];
         let query = query.into();
         let qu = Self::parse(Rule::query, &query)?;
         for expr in qu {
@@ -272,6 +274,15 @@ mod should {
         ),
         DbField::new("changed", DATE, "READ_OFFER", &["changed", "ch"]),
     ];
+
+    #[test]
+    fn parse_not_equal() {
+        let mut s = Suchbar::new(&FIELDS);
+        s.exec("age!=123").expect("This should not panic!");
+        assert_eq!("  NOT age=123", s.to_sql(""));
+        s.exec("ptext!=A").expect("This should not panic!");
+        assert_eq!("  NOT positionstext='A'", s.to_sql(""));
+    }
 
     #[test]
     fn parse_integer_query() {

@@ -28,7 +28,7 @@ impl Display for CompOp {
                 Gte => ">=",
                 Lt => "<",
                 Lte => "<=",
-                NotEqual => panic!("No SQL-representation for CompOp = {self:?}"),
+                NotEqual => "=",
             }
         )
     }

@@ -60,13 +60,7 @@ impl DbField {
                 }
             )),
             NUMERIC(_, _) | INTEGER(_, _) => Ok(format!("{db_name}{eq}{}", db_type.sql_safe(val)?)),
-            _ => {
-                if *eq == CompOp::NotEqual {
-                    Ok(format!("{db_name}='{}'", db_type.sql_safe(val)?))
-                } else {
-                    Ok(format!("{db_name}{eq}'{}'", db_type.sql_safe(val)?))
-                }
-            }
+            _ => Ok(format!("{db_name}{eq}'{}'", db_type.sql_safe(val)?)),
         }
     }
 
@@ -80,12 +74,7 @@ impl DbField {
     }
 
     pub fn is_text(&self) -> bool {
-        match self.db_type {
-            TEXT => true,
-            VARCHAR(_) => true,
-
-            _ => false,
-        }
+        matches!(self.db_type, TEXT | VARCHAR(_))
     }
 }
 
@@ -137,11 +126,9 @@ impl DbType {
                     _ => Err(ParseError(format!("No Numeric value '{val}'"))),
                 }
             }
-            _ => {
-                return Err(ParseError(format!(
-                    "Don't know how to handle: {self:?} = '{val}'"
-                )))
-            }
+            _ => Err(ParseError(format!(
+                "Don't know how to handle: {self:?} = '{val}'"
+            ))),
         }
     }
 }

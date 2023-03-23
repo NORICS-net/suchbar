@@ -2,7 +2,7 @@
 
 raw_char = _{ ( ASCII_ALPHANUMERIC | "." | "," | "/" | "\\ " ) }
 /// green
-raw_string = @{ ( ASCII_ALPHANUMERIC | "-" ) ~ raw_char+ }
+raw_string = @{ ( ASCII_ALPHANUMERIC | "-" ) ~ raw_char* }
 /// red
 raw_string_interior = { ( !PEEK ~ ANY )* }
 value = ${ raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
