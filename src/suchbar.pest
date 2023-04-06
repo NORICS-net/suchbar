@@ -40,4 +40,4 @@ sort = { ";" ~ ( ","? ~ down? ~ sort_field )+ }
 
 query = _{ SOI ~ expr? ~ sort? ~ EOI }
 
- WHITESPACE = _{ " " | "\t" | NEWLINE }
+WHITESPACE = _{ " " | "\t" | NEWLINE }

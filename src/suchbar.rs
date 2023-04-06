@@ -454,6 +454,30 @@ mod should {
     }
 
     #[test]
+    fn parse_like_query() {
+        let s = SUCHBAR
+            .exec(&ADMIN, "art='2332*'")
+            .expect("This should not panic!");
+        assert_eq!("  artikelnummer LIKE '2332%'", s.to_sql(""));
+        let s = SUCHBAR
+            .exec(&ADMIN, "art=2332*")
+            .expect("This should not panic!");
+        assert_eq!("  artikelnummer LIKE '2332%'", s.to_sql(""));
+        let s = SUCHBAR
+            .exec(&ADMIN, "art=2332$")
+            .expect("This should not panic!");
+        assert_eq!("  artikelnummer LIKE '%2332'", s.to_sql(""));
+        let s = SUCHBAR
+            .exec(&ADMIN, "art='*2332*'")
+            .expect("This should not panic!");
+        assert_eq!("  artikelnummer LIKE '%2332%'", s.to_sql(""));
+        let s = SUCHBAR
+            .exec(&ADMIN, "art=^'2332'")
+            .expect("This should not panic!");
+        assert_eq!("  artikelnummer LIKE '2332%'", s.to_sql(""));
+    }
+
+    #[test]
     fn parse_misc_query() {
         let query = r#"ano!=23342 AND (desc=^"irgend ein langer Text!" OR price='35,12'); artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
