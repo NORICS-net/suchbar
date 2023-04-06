@@ -13,7 +13,10 @@ fn try_bool(str: &str) -> Result<bool, SuchError> {
 }
 
 fn date_checker(str: String) -> Result<String, SuchError> {
-    if str.chars().any(|a| !a.is_ascii_digit() && a != '-') {
+    if str
+        .chars()
+        .any(|a| !a.is_ascii_digit() && a != '-' && a != '%')
+    {
         Err(ParseError("No date".to_string()))
     } else {
         Ok(str)
@@ -22,7 +25,7 @@ fn date_checker(str: String) -> Result<String, SuchError> {
 
 fn timestamp_checker(str: String) -> Result<String, SuchError> {
     if str.chars().any(|a| match a {
-        '-' | ':' | ' ' => false,
+        '-' | ':' | ' ' | '%' => false,
         _ => !a.is_ascii_digit(),
     }) {
         Err(ParseError("No date".to_string()))
@@ -123,15 +126,16 @@ impl DbType {
             TIMESTAMP => timestamp_checker(val),
             INTEGER(min, max) => {
                 let cval = val.replace(',', ".");
-                match u64::from_str(&cval) {
+                match u64::from_str(&cval.replace('%', "")) {
                     Ok(d) if d <= *max && d >= *min => Ok(cval),
                     _ => Err(ParseError(format!("No Integer value '{val}'"))),
                 }
             }
             NUMERIC(len, _) => {
                 let cval = val.replace(',', ".");
-                match f64::from_str(&cval) {
-                    Ok(_) if cval.len() < (len + 1) as usize => Ok(cval),
+                let number = cval.replace('%', "");
+                match f64::from_str(&number) {
+                    Ok(_) if number.len() < (len + 1) as usize => Ok(cval),
                     _ => Err(ParseError(format!("No Numeric value '{val}'"))),
                 }
             }

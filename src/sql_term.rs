@@ -13,6 +13,7 @@ pub(crate) enum SQLTerm {
     NOT(Box<SQLTerm>),
     VALUE(DbField, CompOp, String),
     LIKE(DbField, String),
+    DENIED,
 }
 
 impl SQLTerm {
@@ -28,6 +29,7 @@ impl SQLTerm {
             },
             VALUE(f, eq, v) => val_sql(f, eq, v),
             LIKE(f, v) => f.try_sql_like(v),
+            DENIED => Err(SuchError::Denied),
         }
     }
 }

@@ -12,3 +12,4 @@ readme = "README.md"
 [dependencies]
 pest = "2.5.6"
 pest_derive = "2.5.6"
+permeable = "0.3.0"
