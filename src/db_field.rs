@@ -2,6 +2,7 @@ use self::DbType::*;
 use super::comp_op::CompOp;
 use crate::error::SuchError;
 use crate::error::SuchError::ParseError;
+use timewarp::*;
 
 fn try_bool(str: &str) -> Result<bool, SuchError> {
     let str = str.trim().to_ascii_lowercase();
@@ -9,17 +10,6 @@ fn try_bool(str: &str) -> Result<bool, SuchError> {
         "1" | "true" | "wahr" => Ok(true),
         "0" | "false" | "falsch" | "unwahr" => Ok(false),
         _ => Err(ParseError(format!("No boolean value: '{str}'"))),
-    }
-}
-
-fn date_checker(str: String) -> Result<String, SuchError> {
-    if str
-        .chars()
-        .any(|a| !a.is_ascii_digit() && a != '-' && a != '%')
-    {
-        Err(ParseError("No date".to_string()))
-    } else {
-        Ok(str)
     }
 }
 
@@ -61,7 +51,12 @@ impl DbField {
     }
 
     /// Transforms the given `val` into a EQ-expression. Replaces symbols into a sql-save query.
-    pub(crate) fn try_sql_eq(&self, eq: &CompOp, val: &str) -> Result<String, SuchError> {
+    pub(crate) fn try_sql_eq(
+        &self,
+        eq: &CompOp,
+        val: &str,
+        d: Direction,
+    ) -> Result<String, SuchError> {
         let Self {
             db_name, db_type, ..
         } = self;
@@ -76,6 +71,10 @@ impl DbField {
                 }
             )),
             NUMERIC(_, _) | INTEGER(_, _) => Ok(format!("{db_name}{eq}{}", db_type.sql_safe(val)?)),
+            DATE => Ok(format!(
+                "{db_name}{eq}'{:#}'",
+                date_matcher(Doy::today(), d, val).map(|ds| ds.start())?
+            )),
             _ => Ok(format!("{db_name}{eq}'{}'", db_type.sql_safe(val)?)),
         }
     }
@@ -86,7 +85,12 @@ impl DbField {
         let Self {
             db_name, db_type, ..
         } = self;
-        Ok(format!("{db_name} LIKE '{}'", db_type.sql_safe(val)?))
+        match db_type {
+            VARCHAR(_) => Ok(format!("{db_name} LIKE '{}'", db_type.sql_safe(val)?)),
+            TEXT => Ok(format!("{db_name} LIKE '{}'", db_type.sql_safe(val)?)),
+            DATE | TIMESTAMP => Err(SuchError::LikeNotPossible),
+            _ => Ok(format!("{db_name}::TEXT LIKE '{}'", db_type.sql_safe(val)?)),
+        }
     }
 
     pub fn is_text(&self) -> bool {
@@ -122,7 +126,6 @@ impl DbType {
         match self {
             VARCHAR(a) if val.len() > *a => Err(ParseError(format!("Value: '{val}' to long"))),
             VARCHAR(_) | TEXT => Ok(val),
-            DATE => date_checker(val),
             TIMESTAMP => timestamp_checker(val),
             INTEGER(min, max) => {
                 let cval = val.replace(',', ".");
@@ -169,6 +172,7 @@ mod should {
     use crate::db_field::DbType::{BOOL, DATE, INTEGER, VARCHAR};
     use crate::sql_term::SQLTerm::*;
     use crate::DbType::TIMESTAMP;
+    use timewarp::Direction::From;
 
     const ARTIKEL: DbField = DbField::new(
         "article",
@@ -187,10 +191,10 @@ mod should {
     #[test]
     fn op_to_sql() {
         let df = AND(vec![
-            VALUE(ARTIKEL, CompOp::Gt, "1245667".into()),
+            VALUE(ARTIKEL, CompOp::Gt, From, "1245667".into()),
             OR(vec![
-                NOT(Box::new(VALUE(ACTIVE, CompOp::Equal, "false".into()))),
-                VALUE(END_DATE, CompOp::Lte, "2022-12-24".into()),
+                NOT(Box::new(VALUE(ACTIVE, CompOp::Equal, From, "false".into()))),
+                VALUE(END_DATE, CompOp::Lte, From, "2022-12-24".into()),
                 LIKE(NAME, "Micha's cat*".into()),
             ]),
         ]);
@@ -200,23 +204,23 @@ mod should {
             '2022-12-24' OR ma_active LIKE 'Micha''s cat%' ) )"
         );
 
-        let df = VALUE(PRICE, CompOp::Equal, "1000.0".into());
+        let df = VALUE(PRICE, CompOp::Equal, From, "1000.0".into());
         assert!(df.to_sql().is_err());
-        let df = VALUE(PRICE, CompOp::Equal, "1000".into());
+        let df = VALUE(PRICE, CompOp::Equal, From, "1000".into());
         assert_eq!(df.to_sql().unwrap_or_default(), "price=1000");
 
-        let df = VALUE(CHANGED, CompOp::Gte, "2022-09-01".into());
+        let df = VALUE(CHANGED, CompOp::Gte, From, "2022-09-01".into());
         assert_eq!(
             df.to_sql().unwrap_or_default(),
             "changed>='2022-09-01 00:00:00'"
         );
-        let df = VALUE(CHANGED, CompOp::Lt, "2022-09-01 23:30:00".into());
+        let df = VALUE(CHANGED, CompOp::Lt, From, "2022-09-01 23:30:00".into());
         assert_eq!(
             df.to_sql().unwrap_or_default(),
             "changed<'2022-09-01 23:30:00'"
         );
 
-        let df = VALUE(CHANGED, CompOp::Lt, "2022-09-01 23:30:00 MEZ".into());
+        let df = VALUE(CHANGED, CompOp::Lt, From, "2022-09-01 23:30:00 MEZ".into());
         assert!(df.to_sql().is_err());
     }
 }

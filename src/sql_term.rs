@@ -4,6 +4,7 @@ use crate::error::SuchError;
 use crate::error::SuchError::ParseError;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
+use timewarp::Direction;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
@@ -11,7 +12,7 @@ pub(crate) enum SQLTerm {
     AND(Vec<SQLTerm>),
     OR(Vec<SQLTerm>),
     NOT(Box<SQLTerm>),
-    VALUE(DbField, CompOp, String),
+    VALUE(DbField, CompOp, Direction, String),
     LIKE(DbField, String),
     DENIED,
 }
@@ -27,18 +28,18 @@ impl SQLTerm {
                 NOT(inner) => inner.to_sql(),
                 _ => Ok(format!("NOT {}", val.to_sql()?)),
             },
-            VALUE(f, eq, v) => val_sql(f, eq, v),
+            VALUE(f, eq, d, v) => val_sql(f, eq, v, *d),
             LIKE(f, v) => f.try_sql_like(v),
             DENIED => Err(SuchError::Denied),
         }
     }
 }
 
-fn val_sql(f: &DbField, eq: &CompOp, v: &str) -> Result<String, SuchError> {
+fn val_sql(f: &DbField, eq: &CompOp, v: &str, d: Direction) -> Result<String, SuchError> {
     if v.contains('*') {
         f.try_sql_like(v)
     } else {
-        f.try_sql_eq(eq, v)
+        f.try_sql_eq(eq, v, d)
     }
 }
 

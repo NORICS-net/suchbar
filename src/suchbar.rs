@@ -10,6 +10,7 @@ use pest::Parser;
 use std::fmt::Display;
 use std::ops::Not;
 use std::str::FromStr;
+use timewarp::Direction;
 
 type SuchResult = Result<SQLTerm, SuchError>;
 
@@ -32,7 +33,7 @@ impl SuchOptions {
         }
     }
 }
-pub struct SuchbarResult {
+pub struct SuchClauses {
     pub(crate) sql_term: SQLTerm,
     pub(crate) sort_field: Vec<SortField>,
 }
@@ -53,7 +54,7 @@ impl Suchbar {
         &self,
         perm: &impl Permeable,
         query: impl Into<String>,
-    ) -> Result<SuchbarResult, SuchError> {
+    ) -> Result<SuchClauses, SuchError> {
         let mut sql_term = AND(vec![]);
         let mut sort_field = vec![];
         let query = query.into();
@@ -65,7 +66,7 @@ impl Suchbar {
                 _ => {} //ignore EOI and rest
             }
         }
-        Ok(SuchbarResult {
+        Ok(SuchClauses {
             sql_term,
             sort_field,
         })
@@ -152,6 +153,7 @@ impl Suchbar {
         comp_op: CompOp,
         expr: Pair<Rule>,
     ) -> SuchResult {
+        use Direction::{From, To};
         let mut value = String::new();
         let mut like_ending = false;
         let mut like_starting = false;
@@ -203,17 +205,17 @@ impl Suchbar {
                     if sf.is_text() || self.options.like_in_numerics {
                         LIKE(sf, format!("*{}*", value))
                     } else {
-                        VALUE(sf, CompOp::Equal, value.clone())
+                        VALUE(sf, CompOp::Equal, From, value.clone())
                     }
                 } else if to_val.is_some() {
                     AND(vec![
-                        VALUE(sf.clone(), CompOp::Gte, value.clone()),
-                        VALUE(sf, CompOp::Lte, to_val.clone().unwrap_or_default()),
+                        VALUE(sf.clone(), CompOp::Gte, From, value.clone()),
+                        VALUE(sf, CompOp::Lt, To, to_val.clone().unwrap_or_default()),
                     ])
                 } else if comp_op == NotEqual {
-                    NOT(Box::new(VALUE(sf, Equal, value.clone())))
+                    NOT(Box::new(VALUE(sf, Equal, From, value.clone())))
                 } else {
-                    VALUE(sf, comp_op, value.clone())
+                    VALUE(sf, comp_op, From, value.clone())
                 }
             })
             .collect()))
@@ -258,7 +260,7 @@ impl Suchbar {
     }
 }
 
-impl SuchbarResult {
+impl SuchClauses {
     pub fn to_where(&self) -> Result<String, SuchError> {
         self.sql_term.to_sql()
     }
@@ -416,7 +418,7 @@ mod should {
         let s = SUCHBAR.exec(&ADMIN, "123").expect("This should not panic!");
         assert_eq!(
             "  ( artikelnummer LIKE '%123%' OR positionstext LIKE '%123%' OR \
-            price=123 OR age=123 OR promille=123 OR changed='123' )",
+            price=123 OR age=123 OR promille=123 )",
             s.to_sql("")
         );
         let s = SUCHBAR
@@ -424,7 +426,7 @@ mod should {
             .expect("This should not panic!");
         assert_eq!(
             "  ( artikelnummer LIKE '%1234%' OR positionstext LIKE '%1234%' \
-            OR price=1234 OR changed='1234' )",
+            OR price=1234 )",
             s.to_sql("")
         );
     }
@@ -439,8 +441,8 @@ mod should {
         };
         let s = likebar.exec(&ADMIN, "123").expect("This should not panic!");
         assert_eq!(
-            "  ( artikelnummer LIKE '%123%' OR positionstext LIKE '%123%' OR price LIKE '%123%' \
-            OR age LIKE '%123%' OR promille LIKE '%123%' OR changed LIKE '%123%' )",
+            "  ( artikelnummer LIKE '%123%' OR positionstext LIKE '%123%' OR price::TEXT LIKE '%123%' \
+            OR age::TEXT LIKE '%123%' OR promille::TEXT LIKE '%123%' )",
             s.to_sql("")
         );
         let s = likebar
@@ -448,7 +450,7 @@ mod should {
             .expect("This should not panic!");
         assert_eq!(
             "  ( artikelnummer LIKE '%1234%' OR positionstext LIKE '%1234%' OR \
-            price LIKE '%1234%' OR changed LIKE '%1234%' )",
+            price::TEXT LIKE '%1234%' )",
             s.to_sql("")
         );
     }
@@ -493,7 +495,7 @@ mod should {
         let s = SUCHBAR
             .exec(&ADMIN, "age=10-19")
             .expect("This should not panic!");
-        assert_eq!("  ( age>=10 AND age<=19 )", s.to_sql(""));
+        assert_eq!("  ( age>=10 AND age<19 )", s.to_sql(""));
     }
 
     #[test]
@@ -532,5 +534,32 @@ mod should {
             .exec(&ADMIN, r#"ch="2022-12-24""#)
             .expect("This should not panic!");
         assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
+    }
+
+    #[test]
+    fn parse_natural_language_dates() {
+        let s = SUCHBAR
+            .exec(&ADMIN, "ch=Jan")
+            .expect("This should not panic!");
+        assert_eq!(" WHERE changed='2023-01-01'", s.to_sql("WHERE"));
+
+        let s = SUCHBAR
+            .exec(&ADMIN, r#"ch=24.12.2022"#)
+            .expect("This should not panic!");
+        assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
+        let s = SUCHBAR
+            .exec(&ADMIN, r#"ch='Feb'-'Dez'"#)
+            .expect("This should not panic!");
+        assert_eq!(
+            " WHERE ( changed>='2023-02-01' AND changed<'2024-01-01' )",
+            s.to_sql("WHERE")
+        );
+        let s = SUCHBAR
+            .exec(&ADMIN, r#"ch=Feb-Dez"#)
+            .expect("This should not panic!");
+        assert_eq!(
+            " WHERE ( changed>='2023-02-01' AND changed<'2024-01-01' )",
+            s.to_sql("WHERE")
+        );
     }
 }
