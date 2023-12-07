@@ -2,7 +2,7 @@
 name = "suchbar"
 description = "suchbar - enduser-learnable-language for database queries."
 authors = ["Micha Glave <mig@xilab.net>",]
-version = "0.5.1"
+version = "1.0.0"
 edition = "2021"
 license = "MIT"
 readme = "README.md"
