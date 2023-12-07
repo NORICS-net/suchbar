@@ -1,0 +1,19 @@
+[package]
+name = "suchbar"
+description = "suchbar - enduser-learnable-language for database queries."
+authors = ["Micha Glave <mig@xilab.net>",]
+version = "0.5.1"
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/NORICS-net/suchbar"
+categories = ["database", "text-processing", "parser-implementations"]
+keywords = ["human", "human-friendly", "parser", "search-engine", "postgresql"]
+
+[lib]
+
+[dependencies]
+pest = "2.7.5"
+pest_derive = "2.7.5"
+permeable = "0.3.2"
+timewarp = "0.4.0"
