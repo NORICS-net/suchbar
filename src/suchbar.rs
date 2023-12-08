@@ -14,6 +14,7 @@ use timewarp::Direction;
 
 type SuchResult = Result<SQLTerm, SuchError>;
 
+/// Static object to generate `WhereClause`s from queries.  
 #[derive(Parser, Debug)]
 #[grammar = "suchbar.pest"]
 pub struct Suchbar {
@@ -21,9 +22,11 @@ pub struct Suchbar {
     options: SuchOptions,
 }
 
+/// Options for `Suchbar`.
 #[derive(Default, Debug)]
 pub struct SuchOptions {
-    like_in_numerics: bool,
+    /// Should attempt to find a sequence of digits within a NUMERIC field?
+    pub like_in_numerics: bool,
 }
 
 impl SuchOptions {
@@ -44,7 +47,7 @@ impl Suchbar {
         }
     }
 
-    /// Returns a explanation which fields are usable for the search.
+    /// Returns an explanation which fields are usable for the search.
     /// Shows only fields the user has `permission` to see.
     pub fn explanation(&self, permission: &impl Permeable) -> String {
         let mut buf = String::new();
@@ -268,6 +271,7 @@ impl Suchbar {
     }
 }
 
+/// The result of a query, ready to be inserted into a SELECT statement.  
 #[derive(Debug)]
 pub struct WhereClause {
     sql_term: SQLTerm,

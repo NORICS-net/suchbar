@@ -5,9 +5,10 @@ use std::fmt::{Display, Formatter};
 use std::ops::Not;
 use std::str::FromStr;
 
+///
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
-pub enum CompOp {
+pub(crate) enum CompOp {
     #[default]
     Equal,
     NotEqual,

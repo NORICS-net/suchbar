@@ -8,7 +8,7 @@ use timewarp::Direction;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
-pub enum SQLTerm {
+pub(crate) enum SQLTerm {
     AND(Vec<SQLTerm>),
     OR(Vec<SQLTerm>),
     NOT(Box<SQLTerm>),

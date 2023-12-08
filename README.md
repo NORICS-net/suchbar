@@ -53,7 +53,7 @@ The fields available for searching are registered:
 `DbField::new("db-fieldname", db-type, "permission", &["name", "alternative_name", "abbr"]),`   
 
 
-## Beispiel
+## Example
 
 ```rust 
 const SUCHBAR: Suchbar = Suchbar::new(&[
@@ -80,4 +80,4 @@ fn main() {
         }
     }
 }
-```
+```/

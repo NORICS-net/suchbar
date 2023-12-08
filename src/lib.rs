@@ -79,5 +79,4 @@ mod suchbar;
 extern crate pest_derive;
 
 pub use crate::db_field::{DbField, DbType};
-pub use crate::sql_term::SQLTerm;
 pub use crate::suchbar::{SuchOptions, Suchbar, WhereClause};

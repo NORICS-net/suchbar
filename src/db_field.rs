@@ -1,5 +1,5 @@
 use self::DbType::{BOOL, DATE, INTEGER, NUMERIC, TEXT, TIMESTAMP, VARCHAR};
-use super::comp_op::CompOp;
+use crate::comp_op::CompOp;
 use crate::error::SuchError;
 use crate::error::SuchError::ParseError;
 use timewarp::{date_matcher, Direction, Doy};
@@ -7,8 +7,8 @@ use timewarp::{date_matcher, Direction, Doy};
 fn try_bool(str: &str) -> Result<bool, SuchError> {
     let str = str.trim().to_ascii_lowercase();
     match str.as_str() {
-        "1" | "true" | "wahr" => Ok(true),
-        "0" | "false" | "falsch" | "unwahr" => Ok(false),
+        "1" | "true" | "wahr" | "yes" | "ja" | "y" | "j" | "t" | "w" => Ok(true),
+        "0" | "false" | "falsch" | "unwahr" | "no" | "not" | "nein" | "n" | "f" => Ok(false),
         _ => Err(ParseError(format!("No boolean value: '{str}'"))),
     }
 }
@@ -20,12 +20,13 @@ fn timestamp_checker(str: String) -> Result<String, SuchError> {
     }) {
         Err(ParseError(String::from("No date")))
     } else if str.len() == 10 {
-        Ok(format!("{str} 00:00:00"))
+        Ok(str + " 00:00:00")
     } else {
         Ok(str)
     }
 }
 
+/// Definition of a Database-Field.   
 #[derive(Debug, Clone)]
 pub struct DbField {
     pub db_name: &'static str,
@@ -110,14 +111,30 @@ impl DbField {
     }
 }
 
+/// Type of the field in the database.
+/// It is used to decide in which columns valid hits could be found and how
+/// the query must be set up.
 #[derive(Debug, Copy, Clone)]
 pub enum DbType {
+    /// Text in a max. length.
     VARCHAR(usize),
+    /// Text in any length.
     TEXT,
+    /// The min / max-value this INTEGER is valid.
     INTEGER(u64, u64),
+    /// The precision of a numeric is the total count of significant digits
+    /// in the whole number, that is, the number of digits to both sides of
+    /// the decimal point. The scale of a numeric is the count of decimal
+    /// digits in the fractional part, to the right of the decimal point.
+    /// So the number 23.5141 has a precision of 6 and a scale of 4.
     NUMERIC(u32, u32),
+    /// Interprets:
+    /// * True: `1`, `true`, `wahr`, `yes`, `ja`, `y`, `j`, `t`, `w`
+    /// * False: `0`, `false`, `falsch`, `unwahr`, `no`, `not`, `nein`, `n`, `f`
     BOOL,
+    /// Date without time
     DATE,
+    /// Date with time
     TIMESTAMP,
 }
 
