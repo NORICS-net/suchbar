@@ -3,12 +3,11 @@ use crate::db_field::DbField;
 use crate::error::SuchError;
 use crate::error::SuchError::ParseError;
 use std::fmt::{Display, Formatter};
-use std::ops::Deref;
 use timewarp::Direction;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
-pub(crate) enum SQLTerm {
+pub enum SQLTerm {
     AND(Vec<SQLTerm>),
     OR(Vec<SQLTerm>),
     NOT(Box<SQLTerm>),
@@ -18,12 +17,13 @@ pub(crate) enum SQLTerm {
 }
 
 impl SQLTerm {
+    /// Emits the SQL-token of this term and it's children.
     pub fn to_sql(&self) -> Result<String, SuchError> {
         use SQLTerm::{AND, DENIED, LIKE, NOT, OR, VALUE};
         match self {
             OR(vec) => explode(vec, " OR "),
             AND(vec) => explode(vec, " AND "),
-            NOT(val) => match val.deref() {
+            NOT(val) => match &**val {
                 // NOT( NOT(val)) => val
                 NOT(inner) => inner.to_sql(),
                 _ => Ok(format!("NOT {}", val.to_sql()?)),
@@ -57,7 +57,7 @@ fn explode(vec: &[SQLTerm], sep: &str) -> Result<String, SuchError> {
 
 impl Default for SQLTerm {
     fn default() -> Self {
-        SQLTerm::OR(vec![])
+        Self::OR(vec![])
     }
 }
 

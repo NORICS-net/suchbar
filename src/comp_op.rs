@@ -5,10 +5,9 @@ use std::fmt::{Display, Formatter};
 use std::ops::Not;
 use std::str::FromStr;
 
-///
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
-pub(crate) enum CompOp {
+pub enum CompOp {
     #[default]
     Equal,
     NotEqual,
@@ -52,7 +51,7 @@ impl FromStr for CompOp {
 }
 
 impl Not for CompOp {
-    type Output = CompOp;
+    type Output = Self;
 
     fn not(self) -> Self::Output {
         match &self {

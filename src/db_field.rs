@@ -26,7 +26,7 @@ fn timestamp_checker(str: String) -> Result<String, SuchError> {
     }
 }
 
-/// Definition of a Database-Field.   
+/// Definition of a database-Field.
 #[derive(Debug, Clone)]
 pub struct DbField {
     pub db_name: &'static str,
@@ -94,7 +94,7 @@ impl DbField {
     }
 
     #[must_use]
-    pub fn is_text(&self) -> bool {
+    pub const fn is_text(&self) -> bool {
         matches!(self.db_type, TEXT | VARCHAR(_))
     }
 

@@ -1,8 +1,8 @@
 [package]
 name = "suchbar"
 description = "suchbar - enduser-learnable-language for database queries."
-authors = ["Micha Glave <mig@xilab.net>",]
-version = "1.0.0"
+authors = ["Micha Glave <mig@xilab.net>"]
+version = "1.0.1"
 edition = "2021"
 license = "MIT"
 readme = "README.md"
@@ -13,7 +13,7 @@ keywords = ["human", "human-friendly", "parser", "search-engine", "postgresql"]
 [lib]
 
 [dependencies]
-pest = "2.7.5"
-pest_derive = "2.7.5"
-permeable = "0.3.2"
-timewarp = "0.4.0"
+pest = "2.7"
+pest_derive = "2.7"
+permeable = "0.3"
+timewarp = "0.4"
