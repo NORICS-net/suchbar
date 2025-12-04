@@ -1,14 +1,11 @@
-use crate::comp_op::CompOp;
-use crate::comp_op::CompOp::{Equal, NotEqual};
+use crate::comp_op::CompOp::{self, Equal, NotEqual};
 use crate::db_field::{DbField, SortField};
 use crate::error::SuchError;
-use crate::sql_term::SQLTerm;
-use crate::sql_term::SQLTerm::{AND, DENIED, LIKE, NOT, OR, VALUE};
+use crate::sql_term::SQLTerm::{self, AND, DENIED, LIKE, NOT, OR, VALUE};
 use permeable::Permeable;
 use pest::iterators::Pair;
 use pest::Parser;
 use std::fmt::{Display, Write};
-use std::ops::Not;
 use std::str::FromStr;
 use timewarp::Direction;
 
@@ -94,11 +91,8 @@ impl Suchbar {
     }
 
     fn choose_field_vec(&self, needle: &str) -> Vec<DbField> {
-        if let Some(f) = self.choose_field(needle) {
-            vec![f]
-        } else {
-            self.db_fields.to_vec()
-        }
+        self.choose_field(needle)
+            .map_or_else(|| self.db_fields.to_vec(), |f| vec![f])
     }
 
     /// expr = { atom ~ (bin_op? ~ atom)* }
@@ -145,7 +139,7 @@ impl Suchbar {
                     return Ok(self.parse_term(
                         perm,
                         Some(name),
-                        if not { comp_op.not() } else { comp_op },
+                        if not { !comp_op } else { comp_op },
                         exp,
                     ));
                 }
@@ -236,7 +230,7 @@ impl Suchbar {
         expr.into_inner()
             .next()
             .and_then(|exp| match exp.as_rule() {
-                Rule::raw_string => Some(exp.as_str().to_string()),
+                Rule::raw_string => Some(exp.as_str().replace("\\ ", " ")),
                 Rule::raw_string_interior => {
                     // cut off surrounding quotes
                     let (_, s) = exp.as_str().split_at(0);
@@ -433,6 +427,16 @@ mod should {
             .exec(&ADMIN, "NOT ptext != AAA*")
             .expect("This should not panic!");
         assert_eq!("  positionstext LIKE 'AAA%'", s.to_sql(""));
+
+        let s = SUCHBAR
+            .exec(&ADMIN, "ptext=Schlößchen*")
+            .expect("This should not panic!");
+        assert_eq!("  positionstext LIKE 'Schlößchen%'", s.to_sql(""));
+
+        let s = SUCHBAR
+            .exec(&ADMIN, "ptext=Name\\ Surname*")
+            .expect("This should not panic!");
+        assert_eq!("  positionstext LIKE 'Name Surname%'", s.to_sql(""));
     }
 
     #[test]
@@ -559,10 +563,23 @@ mod should {
             OR price=35.12 ) ) ORDER BY artikelnummer, promille DESC, age",
             s.to_sql("")
         );
+
+        let query = r#"ano!=23342 AND(desc=^"irgend ein langer Text!" OR price='35,12'); artnr, ^nummer, age"#;
+        let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
+        assert_eq!(
+            "  ( NOT artikelnummer='23342' AND ( positionstext LIKE 'irgend ein langer Text!%' \
+            OR price=35.12 ) ) ORDER BY artikelnummer, promille DESC, age",
+            s.to_sql("")
+        );
     }
 
     #[test]
     fn parse_from_to_values() {
+        let s = SUCHBAR
+            .exec(&ADMIN, "age=10..19")
+            .expect("This should not panic!");
+        assert_eq!("  ( age>=10 AND age<19 )", s.to_sql(""));
+
         let s = SUCHBAR
             .exec(&ADMIN, "age=10-19")
             .expect("This should not panic!");

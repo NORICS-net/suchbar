@@ -19,10 +19,10 @@ The search query entered by the user is parsed and converted into an SQL WHERE
 clause. For the best possible user experience, field-free queries are sent to
 all syntactically eligible fields as similarity (LIKE) searches.
 
-### Example
+# What it does
 
 A query like `"plz=26440-26452 OR (Eisen AND sn!=Hammer*); plz"` could generate a
-WHERE-Clause for such kind of SELECT.
+WHERE-Clause for such kind of SELECT:
 
 ```sql
 SELECT
@@ -49,7 +49,7 @@ LIMIT 20;
 | Boolean Operator |Alternative Symbol	 | Description                                                                         |
 |:----------------:|:------------------:|:---------------------------------------------------------------------------------------|
 |       AND        |         &&         | 	Requires both terms on either side of the Boolean operator to be present for a match. |
-|       NOT        |         !	         | Requires that the following term not be present.                                       |
+|       NOT        |         !	        |   Requires that the following term not be present.                                      |
 |       OR         |    &vert;&vert;    | 	Requires that either term (or both terms) be present for a match.                     |
 
 
@@ -62,7 +62,7 @@ The fields available for searching are registered:
 `DbField::new("db-fieldname", db-type, "permission", &["name", "alternative_name", "abbr"]),`
 
 
-## Usage
+## Example
 
 ```rust
 use permeable::AllowAllPermission;
@@ -73,18 +73,18 @@ const SUCHBAR: Suchbar = Suchbar::new(&[
     //            fieldname in SQL, fieldtype    Permission  Aliases for query
     DbField::new("pa.shortname",    TEXT,        "STD",      &["sname", "sn"]),
     DbField::new("pa.description",  TEXT,        "STD",      &["desc", "d"]),
-    DbField::new("pa.taxnumber",    VARCHAR(15), "STD",      &["ust_id", "tax", "ustid"]),
+    DbField::new("pa.taxnumber",    VARCHAR(15), "STD",      &["ust_id", "taxid", "ustid", "vatid"]),
     DbField::new("pb.city",         VARCHAR(35), "STD",      &["city", "ort"]),
     DbField::new("pb.street",       VARCHAR(55), "STD",      &["street", "st"]),
     DbField::new("pb.postcode",     VARCHAR(5),  "STD",      &["plz", "zip"]),
 ]);
 
 fn main() {
-    let suche = "plz=26440-26452 OR (Eisen AND sn!=Hammer*)";
-    match SUCHBAR.exec(&AllowAllPermission(), suche) {
+    let query = "plz=26440-26452 OR (Eisen AND sn!=Hammer*)";
+    match SUCHBAR.exec(&AllowAllPermission(), query) {
         Err(error) => println!("\n{error}"),
         Ok(sr) => {
-            let query = format ! (
+            let sql = format!(
             "SELECT pa.shortname, pa.description, pa.taxnumber, \
                     pb.longname, pb.postcode AS INTEGER, pb.city, pb.street \
                     FROM partner_partner pa, partner_branchstore pb \
