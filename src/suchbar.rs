@@ -2,6 +2,7 @@ use crate::comp_op::CompOp::{self, Equal, NotEqual};
 use crate::db_field::{DbField, SortField};
 use crate::error::SuchError;
 use crate::sql_term::SQLTerm::{self, AND, DENIED, LIKE, NOT, OR, VALUE};
+use crate::sql_term::Style;
 use permeable::Permeable;
 use pest::iterators::Pair;
 use pest::Parser;
@@ -311,6 +312,18 @@ impl WhereClause {
         format!("{whr}{sort}")
     }
 
+    pub fn to_url(&self) -> String {
+        self.sql_term.to_url(Style::Compact).unwrap_or_default()
+    }
+
+    pub fn to_text(&self) -> String {
+        self.sql_term.to_url(Style::Pretty).unwrap_or_default()
+    }
+
+    pub fn to_html(&self) -> String {
+        self.sql_term.to_url(Style::Html).unwrap_or_default()
+    }
+
     /// Returns the WHERE-clause as SQL.
     ///
     /// # Errors
@@ -338,19 +351,20 @@ mod should {
     use crate::suchbar::SuchOptions;
     use crate::DbType::DATE;
     use permeable::{Permeable, PermissionError};
+    use similar_asserts::assert_eq;
 
     const SUCHBAR: Suchbar = Suchbar::new(&[
         DbField::new(
             "artikelnummer",
             VARCHAR(18),
             "READ_OFFER",
-            &["art", "artnr", "artikelnummer", "artikelnr", "ano"],
+            &["artnr", "art", "artikelnummer", "artikelnr", "ano"],
         ),
         DbField::new(
             "positionstext",
             TEXT,
             "READ_OFFER",
-            &["beschreibung", "desc", "description", "ptext"],
+            &["desc", "beschreibung", "description", "ptext"],
         ),
         DbField::new(
             "price",
@@ -536,6 +550,7 @@ mod should {
             .exec(&ADMIN, "art='2332*'")
             .expect("This should not panic!");
         assert_eq!("  artikelnummer LIKE '2332%'", s.to_sql(""));
+        assert_eq!("artnr=\"2332*\"", s.to_url());
         let s = SUCHBAR
             .exec(&ADMIN, "art=2332*")
             .expect("This should not panic!");
@@ -552,16 +567,25 @@ mod should {
             .exec(&ADMIN, "art=^'2332'")
             .expect("This should not panic!");
         assert_eq!("  artikelnummer LIKE '2332%'", s.to_sql(""));
+        assert_eq!("artnr=\"2332*\"", s.to_url());
     }
 
     #[test]
     fn parse_misc_query() {
-        let query = r#"ano!=23342 AND (desc=^"irgend ein langer Text!" OR price='35,12'); artnr, ^nummer, age"#;
+        let query = r#"ano!=23342 AND (desc=^"irgend ein langer Text!" OR price=35,12); artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
         assert_eq!(
             "  ( NOT artikelnummer='23342' AND ( positionstext LIKE 'irgend ein langer Text!%' \
             OR price=35.12 ) ) ORDER BY artikelnummer, promille DESC, age",
             s.to_sql("")
+        );
+        assert_eq!(
+            r#"(artnr!="23342"&&(desc="irgend ein langer Text!*"||preis=35,12))"#,
+            s.to_url()
+        );
+        assert_eq!(
+            r#"(artnr!="23342" && (desc="irgend ein langer Text!*" || preis=35,12))"#,
+            s.to_text()
         );
 
         let query = r#"ano!=23342 AND(desc=^"irgend ein langer Text!" OR price='35,12'); artnr, ^nummer, age"#;
@@ -570,6 +594,48 @@ mod should {
             "  ( NOT artikelnummer='23342' AND ( positionstext LIKE 'irgend ein langer Text!%' \
             OR price=35.12 ) ) ORDER BY artikelnummer, promille DESC, age",
             s.to_sql("")
+        );
+        assert_eq!(
+            "(artnr!=\"23342\"&&(desc=\"irgend ein langer Text!*\"||preis=35,12))",
+            s.to_url()
+        );
+    }
+
+    #[test]
+    fn to_text() {
+        let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12'); artnr, ^nummer, age"#;
+        let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
+        let res = s.to_text();
+        assert_eq!(
+            r#"(artnr!="23342" && (desc="irgend \"ein\" langer Text!*" || preis=35,12))"#,
+            res
+        );
+        let s = SUCHBAR
+            .exec(&ADMIN, &s.to_url())
+            .expect("This should not panic!");
+        assert_eq!(res, s.to_text());
+    }
+
+    #[test]
+    fn to_html() {
+        let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12') AND age=10-19 ; artnr, ^nummer, age"#;
+        let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
+        let res = s.to_html();
+        assert_eq!(
+            res,
+            "<span class=\"syntax_bracket syntax_b_start\">(</span><span class=\"syntax_field\">artnr</span>\
+            <span class=\"syntax_operator\">!=</span><span class=\"syntax_text\">\"23342\"</span>\
+            <span class=\"syntax_combinator syntax_b_and\">&amp;&amp;</span>\
+            <span class=\"syntax_bracket syntax_b_start\">(</span><span class=\"syntax_field\">desc</span>\
+            <span class=\"syntax_operator\">=</span><span class=\"syntax_text\">\"irgend \\\"ein\\\" langer Text!*\"</span>\
+            <span class=\"syntax_combinator syntax_b_or\">||</span><span class=\"syntax_field\">preis</span>\
+            <span class=\"syntax_operator\">=</span><span class=\"syntax_number\">35,12</span>\
+            <span class=\"syntax_bracket syntax_b_end\">)</span><span class=\"syntax_combinator syntax_b_and\">&amp;&amp;</span>\
+            <span class=\"syntax_bracket syntax_b_start\">(</span><span class=\"syntax_field\">alter</span>\
+            <span class=\"syntax_operator\">&ge;</span><span class=\"syntax_number\">10</span>\
+            <span class=\"syntax_combinator syntax_b_and\">&amp;&amp;</span><span class=\"syntax_field\">alter</span>\
+            <span class=\"syntax_operator\">&lt;</span><span class=\"syntax_number\">19</span>\
+            <span class=\"syntax_bracket syntax_b_end\">)</span><span class=\"syntax_bracket syntax_b_end\">)</span>"
         );
     }
 

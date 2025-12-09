@@ -17,3 +17,6 @@ pest = "2.8"
 pest_derive = "2.8"
 permeable = "0.3"
 timewarp = "0.4"
+
+[dev-dependencies]
+similar-asserts  = "1.7.0"

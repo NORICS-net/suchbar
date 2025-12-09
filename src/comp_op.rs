@@ -17,6 +17,20 @@ pub enum CompOp {
     Lte,
 }
 
+impl CompOp {
+    pub fn to_html(&self) -> String {
+        match self {
+            Equal => "=",
+            Gt => "&gt;",
+            Gte => "&ge;",
+            Lt => "&lt;",
+            Lte => "&le;",
+            NotEqual => "!=",
+        }
+        .into()
+    }
+}
+
 impl Display for CompOp {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -40,11 +54,11 @@ impl FromStr for CompOp {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "=" | "==" => Ok(Equal),
-            ">=" | "=>" => Ok(Gte),
+            ">=" | "=>" | "≥" | "⩾" => Ok(Gte),
             ">" => Ok(Gt),
-            "<=" | "=<" => Ok(Lte),
+            "<=" | "=<" | "≤" | "⩽" => Ok(Lte),
             "<" => Ok(Lt),
-            "!=" | "=!" => Ok(NotEqual),
+            "!=" | "=!" | "≠" => Ok(NotEqual),
             _ => Err(ParseError(format!("'{s}' is no comparator!"))),
         }
     }

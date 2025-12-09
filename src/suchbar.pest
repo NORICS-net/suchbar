@@ -1,12 +1,12 @@
 // search - section
 
-raw_char = _{ ( "." | "," | "/" | "\\ " )? ~ (ASCII_ALPHANUMERIC | "ä" | "ö" | "ü" | "ß" | "Ä" | "Ö" | "Ü" | "ẞ") }
+raw_char = _{ ("." | "," | "/" | "\\ ")? ~ (ASCII_ALPHANUMERIC | "ä" | "ö" | "ü" | "ß" | "Ä" | "Ö" | "Ü" | "ẞ") }
 
 /// green
 raw_string = @{ (ASCII_ALPHANUMERIC | "-") ~ raw_char* }
 
 /// red
-raw_string_interior =  { (!PEEK ~ ANY)* }
+raw_string_interior =  { (!PEEK ~ ("\\" ~ PEEK | ANY))* }
 value               = ${ raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
 date                = ${ ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} }
 
@@ -24,7 +24,7 @@ term      = { (date | value ~ from_to | starts_with? ~ value ~ ends_with?) }
 field_name = ${ ASCII_ALPHA ~ (("_" | "-" | ".")? ~ ASCII_ALPHANUMERIC)* }
 
 /// white
-eq      =  { "=!" | "=>" | "=<" | ">=" | "<=" | ">" | "<" | "!=" | "==" | "=" }
+eq      =  { "=!" | "=>" | "=<" | ">=" | "<=" | ">" | "<" | "!=" | "==" | "=" | "≥" | "≤" | "⩾" | "⩽" | "≠" }
 field   =  { field_name ~ eq ~ term }
 primary = _{ field | term | "(" ~ expr ~ ")" | "{" ~ expr ~ "}" | "[" ~ expr ~ "]" }
 

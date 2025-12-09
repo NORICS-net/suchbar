@@ -2,6 +2,7 @@ use self::DbType::{BOOL, DATE, INTEGER, NUMERIC, TEXT, TIMESTAMP, VARCHAR};
 use crate::comp_op::CompOp;
 use crate::error::SuchError;
 use crate::error::SuchError::ParseError;
+use crate::sql_term::Style;
 use timewarp::{date_matcher, Direction, Doy};
 
 fn try_bool(str: &str) -> Result<bool, SuchError> {
@@ -90,6 +91,34 @@ impl DbField {
             VARCHAR(_) | TEXT => Ok(format!("{db_name} LIKE '{}'", db_type.sql_safe(val)?)),
             DATE | TIMESTAMP => Err(SuchError::LikeNotPossible),
             _ => Ok(format!("{db_name}::TEXT LIKE '{}'", db_type.sql_safe(val)?)),
+        }
+    }
+
+    pub fn to_text(&self, style: Style, eq: CompOp, val: &str) -> String {
+        let name = self.alias[0];
+        let escaped = val.replace(r#"\""#, r#"""#).replace(r#"""#, r#"\""#);
+        match style {
+            Style::Html => {
+                if self.is_text() {
+                    format!(
+                        r#"<span class="syntax_field">{name}</span><span class="syntax_operator">{}</span><span class="syntax_text">"{escaped}"</span>"#,
+                        eq.to_html()
+                    )
+                } else {
+                    format!(
+                        r#"<span class="syntax_field">{name}</span><span class="syntax_operator">{}</span><span class="{}">{val}</span>"#,
+                        eq.to_html(),
+                        self.db_type.css_class()
+                    )
+                }
+            }
+            _ => {
+                if self.is_text() {
+                    format!("{name}{eq}\"{escaped}\"")
+                } else {
+                    format!("{name}{eq}{val}")
+                }
+            }
         }
     }
 
@@ -184,6 +213,16 @@ impl DbType {
             INTEGER(_, _) | NUMERIC(_, _) => "NUMBER",
             BOOL => "BOOL",
             DATE | TIMESTAMP => "TIME",
+        }
+        .into()
+    }
+
+    pub fn css_class(&self) -> String {
+        match self {
+            VARCHAR(_) | TEXT => "syntax_text",
+            INTEGER(_, _) | NUMERIC(_, _) => "syntax_number",
+            BOOL => "syntax_bool",
+            DATE | TIMESTAMP => "syntax_time",
         }
         .into()
     }
