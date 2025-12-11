@@ -24,15 +24,15 @@ pub enum Style {
 }
 
 enum Combinator {
-    AND,
-    OR,
+    And,
+    Or,
 }
 
 impl Combinator {
     const fn to_sql(&self) -> &'static str {
         match self {
-            Self::AND => " AND ",
-            Self::OR => " OR ",
+            Self::And => " AND ",
+            Self::Or => " OR ",
         }
     }
 
@@ -46,22 +46,22 @@ impl Combinator {
 
     const fn to_compact(&self) -> &'static str {
         match self {
-            Self::AND => "&&",
-            Self::OR => "||",
+            Self::And => "&&",
+            Self::Or => "||",
         }
     }
 
     const fn to_html(&self) -> &'static str {
         match self {
-            Self::AND => "<span class=\"syntax_combinator syntax_b_and\">&amp;&amp;</span>",
-            Self::OR => "<span class=\"syntax_combinator syntax_b_or\">||</span>",
+            Self::And => "<span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span>",
+            Self::Or => "<span class=\"syntax_combinator syntax_c_or\">||</span>",
         }
     }
 
     const fn to_pretty(&self) -> &'static str {
         match self {
-            Self::AND => " && ",
-            Self::OR => " || ",
+            Self::And => " && ",
+            Self::Or => " || ",
         }
     }
 }
@@ -71,8 +71,8 @@ impl SQLTerm {
     pub fn to_sql(&self) -> Result<String, SuchError> {
         use SQLTerm::{AND, DENIED, LIKE, NOT, OR, VALUE};
         match self {
-            OR(vec) => explode_sql(vec, Combinator::OR),
-            AND(vec) => explode_sql(vec, Combinator::AND),
+            OR(vec) => explode_sql(vec, Combinator::Or),
+            AND(vec) => explode_sql(vec, Combinator::And),
             NOT(val) => match &**val {
                 // NOT( NOT(val)) => val
                 NOT(inner) => inner.to_sql(),
@@ -84,19 +84,19 @@ impl SQLTerm {
         }
     }
 
-    pub fn to_url(&self, style: Style) -> Result<String, SuchError> {
+    pub fn as_text(&self, style: Style) -> Result<String, SuchError> {
         use SQLTerm::{AND, DENIED, LIKE, NOT, OR, VALUE};
         match self {
-            OR(vec) => explode_text(vec, Combinator::OR, style),
-            AND(vec) => explode_text(vec, Combinator::AND, style),
+            OR(vec) => explode_text(vec, Combinator::Or, style),
+            AND(vec) => explode_text(vec, Combinator::And, style),
             NOT(val) => match &**val {
                 // NOT( NOT(val)) => val
-                NOT(inner) => inner.to_url(style),
-                VALUE(f, eq, _, v) => Ok(f.to_text(style, !*eq, v)),
-                _ => Ok(format!("!{}", val.to_url(style)?)),
+                NOT(inner) => inner.as_text(style),
+                VALUE(f, eq, _, v) => Ok(f.as_text(style, !*eq, v)),
+                _ => Ok(format!("!{}", val.as_text(style)?)),
             },
-            VALUE(f, eq, _, v) => Ok(f.to_text(style, *eq, v)),
-            LIKE(f, v) => Ok(f.to_text(style, CompOp::Equal, v)),
+            VALUE(f, eq, _, v) => Ok(f.as_text(style, *eq, v)),
+            LIKE(f, v) => Ok(f.as_text(style, CompOp::Equal, v)),
             DENIED => Err(SuchError::Denied),
         }
     }
@@ -117,13 +117,13 @@ fn explode_text(
 ) -> Result<String, SuchError> {
     let v = vec
         .iter()
-        .filter_map(|op| op.to_url(style).ok())
+        .filter_map(|op| op.as_text(style).ok())
         .collect::<Vec<String>>();
     match v.len() {
         0 => Err(ParseError("Empty SQLTerm!".to_string())),
         1 => Ok(v[0].clone()),
         _ => Ok(match style {
-            Style::Html => format!("<span class=\"syntax_bracket syntax_b_start\">(</span>{}<span class=\"syntax_bracket syntax_b_end\">)</span>",
+            Style::Html => format!("<span class=\"syntax_bracket\"><span class=\"syntax_b_start\">(</span><div class=\"syntax_in_brackets\">{}</div><span class=\"syntax_b_end\">)</span></span>",
                 v.join(combinator.to_text(style))),
             _ => format!("({})", v.join(combinator.to_text(style))),
         }),

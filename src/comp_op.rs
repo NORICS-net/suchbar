@@ -18,7 +18,7 @@ pub enum CompOp {
 }
 
 impl CompOp {
-    pub fn to_html(&self) -> String {
+    pub fn as_html(&self) -> String {
         match self {
             Equal => "=",
             Gt => "&gt;",

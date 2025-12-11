@@ -1,14 +1,67 @@
 // search - section
 
-raw_char = _{ ("." | "," | "/" | "\\ ")? ~ (ASCII_ALPHANUMERIC | "ä" | "ö" | "ü" | "ß" | "Ä" | "Ö" | "Ü" | "ẞ") }
+GERMAN_LETTERS    = _{ "ä" | "ö" | "ü" | "ß" | "Ä" | "Ö" | "Ü" | "ẞ" }
+DANISH_LETTERS    = _{ "æ" | "ø" | "å" | "Æ" | "Ø" | "Å" }
+SWEDISH_LETTERS   = _{ "ä" | "ö" | "å" | "Ä" | "Ö" | "Å" }
+FINNISH_LETTERS   = _{ "ä" | "ö" | "å" | "Ä" | "Ö" | "Å" }
+NORWEGIAN_LETTERS = _{ "æ" | "ø" | "å" | "Æ" | "Ø" | "Å" }
+ICELANDIC_LETTERS = _{ "ð" | "þ" | "Ð" | "Þ" }
+SPANISH_LETTERS   = _{ "á" | "é" | "í" | "ó" | "ú" | "ü" | "ñ" | "Á" | "É" | "Í" | "Ó" | "Ú" | "Ü" | "Ñ" }
+FRENCH_LETTERS    = _{
+    "à"
+  | "â"
+  | "æ"
+  | "é"
+  | "è"
+  | "ê"
+  | "ë"
+  | "ç"
+  | "î"
+  | "ï"
+  | "ô"
+  | "œ"
+  | "ù"
+  | "û"
+  | "ü"
+  | "ÿ"
+  | "À"
+  | "Â"
+  | "Æ"
+  | "É"
+  | "È"
+  | "Ê"
+  | "Ë"
+  | "Ç"
+  | "Ì"
+  | "Ï"
+  | "Ô"
+  | "Œ"
+  | "Ù"
+  | "Û"
+  | "Ü"
+  | "Ý"
+}
+EURO_LETTERS      = _{ GERMAN_LETTERS | DANISH_LETTERS | SWEDISH_LETTERS | NORWEGIAN_LETTERS | ICELANDIC_LETTERS | FRENCH_LETTERS | SPANISH_LETTERS }
+
+ONE_TO_NINE   = _{ ("1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9") }
+ONE_TO_31     = _{ ("1" ~ ASCII_DIGIT | "2" ~ ASCII_DIGIT | "30" | "31" | "0"? ~ ONE_TO_NINE) }
+ONE_TO_TWELVE = _{ ("1" ~ ("0" | "1" | "2") | "0"? ~ ONE_TO_NINE) }
+YEAR          = _{ ASCII_DIGIT{2} ~ ASCII_DIGIT{2}? }
+
+raw_char = _{ ("." | "," | "/" | "\\ ")? ~ (ASCII_ALPHANUMERIC | EURO_LETTERS) }
 
 /// green
-raw_string = @{ (ASCII_ALPHANUMERIC | "-") ~ raw_char* }
+raw_string = @{ (ASCII_ALPHANUMERIC | EURO_LETTERS) ~ raw_char* }
+raw_number = @{ ("+" | "-")? ~ ASCII_DIGIT+ ~ (("." | ",") ~ ASCII_DIGIT+)? }
 
 /// red
 raw_string_interior =  { (!PEEK ~ ("\\" ~ PEEK | ANY))* }
-value               = ${ raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
-date                = ${ ASCII_DIGIT{4} ~ "-" ~ ASCII_DIGIT{2} ~ "-" ~ ASCII_DIGIT{2} }
+value               = ${ raw_number | raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
+date                = ${
+    (YEAR ~ "-" ~ ONE_TO_TWELVE ~ "-" ~ ONE_TO_31) // ISO date
+
+  | (ONE_TO_31 ~ "." ~ ONE_TO_TWELVE ~ "." ~ YEAR) // DD.MM.YYYY -- german style
+}
 
 /// brown
 from_to = { (".." | "-" | "~") ~ value }

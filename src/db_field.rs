@@ -94,7 +94,7 @@ impl DbField {
         }
     }
 
-    pub fn to_text(&self, style: Style, eq: CompOp, val: &str) -> String {
+    pub fn as_text(&self, style: Style, eq: CompOp, val: &str) -> String {
         let name = self.alias[0];
         let escaped = val.replace(r#"\""#, r#"""#).replace(r#"""#, r#"\""#);
         match style {
@@ -102,12 +102,12 @@ impl DbField {
                 if self.is_text() {
                     format!(
                         r#"<span class="syntax_field">{name}</span><span class="syntax_operator">{}</span><span class="syntax_text">"{escaped}"</span>"#,
-                        eq.to_html()
+                        eq.as_html()
                     )
                 } else {
                     format!(
                         r#"<span class="syntax_field">{name}</span><span class="syntax_operator">{}</span><span class="{}">{val}</span>"#,
-                        eq.to_html(),
+                        eq.as_html(),
                         self.db_type.css_class()
                     )
                 }

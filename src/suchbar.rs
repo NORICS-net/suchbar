@@ -115,7 +115,7 @@ impl Suchbar {
                 Rule::term => acc.push(self.parse_term(perm, None, comp_op, exp)),
                 Rule::expr => acc.push(self.parse_expr(perm, exp)?),
                 _ => {
-                    println!("=> Suchbar::parse_expr:: {exp:?}");
+                    panic!("=> Suchbar::parse_expr:: {exp:?} unknown rule");
                 }
             };
         }
@@ -145,7 +145,7 @@ impl Suchbar {
                     ));
                 }
                 _ => {
-                    println!("=> Suchbar::parse_field:: {exp:?}");
+                    panic!("=> Suchbar::parse_field:: {exp:?} unknown rule");
                 }
             }
         }
@@ -185,7 +185,7 @@ impl Suchbar {
                 Rule::from_to => to_val = Self::parse_value(exp.into_inner().next().unwrap()),
                 Rule::value => value = Self::parse_value(exp).unwrap_or_default(),
                 Rule::date => value = exp.as_str().to_string(),
-                _ => println!("=> Suchbar::parse_term:: {exp:?}"),
+                _ => panic!("=> Suchbar::parse_term:: {exp:?} unknown rule"),
             }
         }
 
@@ -228,21 +228,19 @@ impl Suchbar {
     }
 
     fn parse_value(expr: Pair<Rule>) -> Option<String> {
-        expr.into_inner()
-            .next()
-            .and_then(|exp| match exp.as_rule() {
-                Rule::raw_string => Some(exp.as_str().replace("\\ ", " ")),
-                Rule::raw_string_interior => {
-                    // cut off surrounding quotes
-                    let (_, s) = exp.as_str().split_at(0);
-                    let (s, _) = s.split_at(s.len());
-                    Some(String::from(s))
-                }
-                _ => {
-                    println!("=> Suchbar::parse_value:: {exp:?}");
-                    None
-                }
-            })
+        expr.into_inner().next().map(|exp| match exp.as_rule() {
+            Rule::raw_string => exp.as_str().replace("\\ ", " "),
+            Rule::raw_number => exp.as_str().to_string(),
+            Rule::raw_string_interior => {
+                // cut off surrounding quotes
+                let (_, s) = exp.as_str().split_at(0);
+                let (s, _) = s.split_at(s.len());
+                String::from(s)
+            }
+            _ => {
+                panic!("=> Suchbar::parse_value:: {exp:?} unknown rule");
+            }
+        })
     }
 
     fn parse_sort(&self, sort: Pair<Rule>) -> Vec<SortField> {
@@ -312,16 +310,35 @@ impl WhereClause {
         format!("{whr}{sort}")
     }
 
-    pub fn to_url(&self) -> String {
-        self.sql_term.to_url(Style::Compact).unwrap_or_default()
+    /// Returns the query as a compact text, useful for embedding in URLs.
+    pub fn as_compact(&self) -> String {
+        self.sql_term.as_text(Style::Compact).unwrap_or_default()
     }
 
-    pub fn to_text(&self) -> String {
-        self.sql_term.to_url(Style::Pretty).unwrap_or_default()
+    /// Returns the query as a pretty text.
+    pub fn as_text(&self) -> String {
+        self.sql_term.as_text(Style::Pretty).unwrap_or_default()
     }
 
-    pub fn to_html(&self) -> String {
-        self.sql_term.to_url(Style::Html).unwrap_or_default()
+    /// Returns the query as HTML with syntax highlighting.
+    ///
+    /// # CSS Classes:
+    ///
+    ///  * `syntax_boolean`
+    ///  * `syntax_bracket`
+    ///    - `syntax_b_start`
+    ///    - `syntax_b_end`
+    ///  * `syntax_in_brackets`
+    ///  * `syntax_combinator`
+    ///    - `syntax_c_and`
+    ///    - `syntax_c_or`
+    ///  * `syntax_identifier`
+    ///  * `syntax_number`
+    ///  * `syntax_operator`
+    ///  * `syntax_string`
+    ///
+    pub fn as_html(&self) -> String {
+        self.sql_term.as_text(Style::Html).unwrap_or_default()
     }
 
     /// Returns the WHERE-clause as SQL.
@@ -550,7 +567,7 @@ mod should {
             .exec(&ADMIN, "art='2332*'")
             .expect("This should not panic!");
         assert_eq!("  artikelnummer LIKE '2332%'", s.to_sql(""));
-        assert_eq!("artnr=\"2332*\"", s.to_url());
+        assert_eq!("artnr=\"2332*\"", s.as_compact());
         let s = SUCHBAR
             .exec(&ADMIN, "art=2332*")
             .expect("This should not panic!");
@@ -567,7 +584,7 @@ mod should {
             .exec(&ADMIN, "art=^'2332'")
             .expect("This should not panic!");
         assert_eq!("  artikelnummer LIKE '2332%'", s.to_sql(""));
-        assert_eq!("artnr=\"2332*\"", s.to_url());
+        assert_eq!("artnr=\"2332*\"", s.as_compact());
     }
 
     #[test]
@@ -581,11 +598,11 @@ mod should {
         );
         assert_eq!(
             r#"(artnr!="23342"&&(desc="irgend ein langer Text!*"||preis=35,12))"#,
-            s.to_url()
+            s.as_compact()
         );
         assert_eq!(
             r#"(artnr!="23342" && (desc="irgend ein langer Text!*" || preis=35,12))"#,
-            s.to_text()
+            s.as_text()
         );
 
         let query = r#"ano!=23342 AND(desc=^"irgend ein langer Text!" OR price='35,12'); artnr, ^nummer, age"#;
@@ -597,7 +614,7 @@ mod should {
         );
         assert_eq!(
             "(artnr!=\"23342\"&&(desc=\"irgend ein langer Text!*\"||preis=35,12))",
-            s.to_url()
+            s.as_compact()
         );
     }
 
@@ -605,37 +622,41 @@ mod should {
     fn to_text() {
         let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12'); artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
-        let res = s.to_text();
+        let res = s.as_text();
         assert_eq!(
             r#"(artnr!="23342" && (desc="irgend \"ein\" langer Text!*" || preis=35,12))"#,
             res
         );
         let s = SUCHBAR
-            .exec(&ADMIN, &s.to_url())
+            .exec(&ADMIN, &s.as_compact())
             .expect("This should not panic!");
-        assert_eq!(res, s.to_text());
+        assert_eq!(res, s.as_text());
     }
 
     #[test]
     fn to_html() {
         let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12') AND age=10-19 ; artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
-        let res = s.to_html();
+        let res = s.as_html();
         assert_eq!(
             res,
-            "<span class=\"syntax_bracket syntax_b_start\">(</span><span class=\"syntax_field\">artnr</span>\
-            <span class=\"syntax_operator\">!=</span><span class=\"syntax_text\">\"23342\"</span>\
-            <span class=\"syntax_combinator syntax_b_and\">&amp;&amp;</span>\
-            <span class=\"syntax_bracket syntax_b_start\">(</span><span class=\"syntax_field\">desc</span>\
-            <span class=\"syntax_operator\">=</span><span class=\"syntax_text\">\"irgend \\\"ein\\\" langer Text!*\"</span>\
-            <span class=\"syntax_combinator syntax_b_or\">||</span><span class=\"syntax_field\">preis</span>\
-            <span class=\"syntax_operator\">=</span><span class=\"syntax_number\">35,12</span>\
-            <span class=\"syntax_bracket syntax_b_end\">)</span><span class=\"syntax_combinator syntax_b_and\">&amp;&amp;</span>\
-            <span class=\"syntax_bracket syntax_b_start\">(</span><span class=\"syntax_field\">alter</span>\
-            <span class=\"syntax_operator\">&ge;</span><span class=\"syntax_number\">10</span>\
-            <span class=\"syntax_combinator syntax_b_and\">&amp;&amp;</span><span class=\"syntax_field\">alter</span>\
-            <span class=\"syntax_operator\">&lt;</span><span class=\"syntax_number\">19</span>\
-            <span class=\"syntax_bracket syntax_b_end\">)</span><span class=\"syntax_bracket syntax_b_end\">)</span>"
+            "<span class=\"syntax_bracket\"><span class=\"syntax_b_start\">(</span>\
+            <div class=\"syntax_in_brackets\">\
+                <span class=\"syntax_field\">artnr</span><span class=\"syntax_operator\">!=</span><span class=\"syntax_text\">\"23342\"</span>\
+                <span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span><span class=\"syntax_bracket\"><span class=\"syntax_b_start\">(</span>\
+                <div class=\"syntax_in_brackets\">\
+                    <span class=\"syntax_field\">desc</span><span class=\"syntax_operator\">=</span><span class=\"syntax_text\">\"irgend \\\"ein\\\" langer Text!*\"</span>\
+                    <span class=\"syntax_combinator syntax_c_or\">||</span>\
+                    <span class=\"syntax_field\">preis</span><span class=\"syntax_operator\">=</span><span class=\"syntax_number\">35,12</span>\
+                </div><span class=\"syntax_b_end\">)</span></span>\
+                <span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span>\
+                <span class=\"syntax_bracket\"><span class=\"syntax_b_start\">(</span>\
+                <div class=\"syntax_in_brackets\">\
+                <span class=\"syntax_field\">alter</span><span class=\"syntax_operator\">&ge;</span><span class=\"syntax_number\">10</span>\
+                <span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span>\
+                <span class=\"syntax_field\">alter</span><span class=\"syntax_operator\">&lt;</span><span class=\"syntax_number\">19</span></div>\
+            <span class=\"syntax_b_end\">)</span></span></div>\
+            <span class=\"syntax_b_end\">)</span></span>"
         );
     }
 
@@ -675,6 +696,11 @@ mod should {
             .exec(&ADMIN, "artnr = *5*")
             .expect("This should not panic!");
         assert_eq!(" WHERE artikelnummer LIKE '%5%'", s.to_sql("WHERE"));
+
+        let s = SUCHBAR
+            .exec(&ADMIN, "artnr = *öl*")
+            .expect("This should not panic!");
+        assert_eq!(" WHERE artikelnummer LIKE '%öl%'", s.to_sql("WHERE"));
     }
 
     #[test]
