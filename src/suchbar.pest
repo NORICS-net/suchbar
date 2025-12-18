@@ -43,38 +43,25 @@ FRENCH_LETTERS    = _{
 }
 EURO_LETTERS      = _{ GERMAN_LETTERS | DANISH_LETTERS | SWEDISH_LETTERS | NORWEGIAN_LETTERS | ICELANDIC_LETTERS | FRENCH_LETTERS | SPANISH_LETTERS }
 
-ONE_TO_NINE   = _{ ("1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9") }
-ONE_TO_31     = _{ ("1" ~ ASCII_DIGIT | "2" ~ ASCII_DIGIT | "30" | "31" | "0"? ~ ONE_TO_NINE) }
-ONE_TO_TWELVE = _{ ("1" ~ ("0" | "1" | "2") | "0"? ~ ONE_TO_NINE) }
-YEAR          = _{ ASCII_DIGIT{2} ~ ASCII_DIGIT{2}? }
-
-raw_char = _{ ("." | "," | "/" | "\\ ")? ~ (ASCII_ALPHANUMERIC | EURO_LETTERS) }
-
 /// green
+raw_char = _{ ("." | "," | "/" | "\\ " | "-")? ~ (ASCII_ALPHANUMERIC | EURO_LETTERS) }
 raw_string = @{ (ASCII_ALPHANUMERIC | EURO_LETTERS) ~ raw_char* }
-raw_number = @{ ("+" | "-")? ~ ASCII_DIGIT+ ~ (("." | ",") ~ ASCII_DIGIT+)? }
 
 /// red
 raw_string_interior =  { (!PEEK ~ ("\\" ~ PEEK | ANY))* }
-value               = ${ raw_number | raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
-date                = ${
-    (YEAR ~ "-" ~ ONE_TO_TWELVE ~ "-" ~ ONE_TO_31) // ISO date
-
-  | (ONE_TO_31 ~ "." ~ ONE_TO_TWELVE ~ "." ~ YEAR) // DD.MM.YYYY -- german style
-}
+value               = ${ raw_string | PUSH("\"" | "'") ~ raw_string_interior ~ POP }
 
 /// brown
-from_to = { (".." | "-" | "~") ~ value }
+from_to = { (".." | "~") ~ value }
 
 /// pink
 starts_with = { "^" | "*" }
-
-/// pink
 ends_with = { "$" | "*" }
-term      = { (date | value ~ from_to | starts_with? ~ value ~ ends_with?) }
+
+term      = { ( value ~ from_to | starts_with? ~ value ~ ends_with?) }
 
 /// orange
-field_name = ${ ASCII_ALPHA ~ (("_" | "-" | ".")? ~ ASCII_ALPHANUMERIC)* }
+field_name = ${ (ASCII_ALPHA | EURO_LETTERS) ~ (("_" | "-" | ".")? ~ (ASCII_ALPHANUMERIC | EURO_LETTERS))* }
 
 /// white
 eq      =  { "=!" | "=>" | "=<" | ">=" | "<=" | ">" | "<" | "!=" | "==" | "=" | "≥" | "≤" | "⩾" | "⩽" | "≠" }

@@ -184,7 +184,6 @@ impl Suchbar {
                 }
                 Rule::from_to => to_val = Self::parse_value(exp.into_inner().next().unwrap()),
                 Rule::value => value = Self::parse_value(exp).unwrap_or_default(),
-                Rule::date => value = exp.as_str().to_string(),
                 _ => panic!("=> Suchbar::parse_term:: {exp:?} unknown rule"),
             }
         }
@@ -230,7 +229,6 @@ impl Suchbar {
     fn parse_value(expr: Pair<Rule>) -> Option<String> {
         expr.into_inner().next().map(|exp| match exp.as_rule() {
             Rule::raw_string => exp.as_str().replace("\\ ", " "),
-            Rule::raw_number => exp.as_str().to_string(),
             Rule::raw_string_interior => {
                 // cut off surrounding quotes
                 let (_, s) = exp.as_str().split_at(0);
@@ -364,7 +362,7 @@ impl WhereClause {
 mod should {
     use super::Suchbar;
     use crate::db_field::DbField;
-    use crate::db_field::DbType::{INTEGER, NUMERIC, TEXT, VARCHAR};
+    use crate::db_field::DbType::{BOOL, INTEGER, NUMERIC, TEXT, VARCHAR};
     use crate::suchbar::SuchOptions;
     use crate::DbType::DATE;
     use permeable::{Permeable, PermissionError};
@@ -397,6 +395,12 @@ mod should {
             &["number", "nummer", "promille"],
         ),
         DbField::new("changed", DATE, "READ_OFFER", &["changed", "ch"]),
+        DbField::new(
+            "is_changed",
+            BOOL,
+            "READ_OFFER",
+            &["is_changed", "geändert", "änderung"],
+        ),
     ]);
 
     struct Perm {
@@ -468,6 +472,11 @@ mod should {
             .exec(&ADMIN, "ptext=Name\\ Surname*")
             .expect("This should not panic!");
         assert_eq!("  positionstext LIKE 'Name Surname%'", s.to_sql(""));
+
+        let s = SUCHBAR
+            .exec(&ADMIN, "änderung=No")
+            .expect("This should not panic!");
+        assert_eq!("  is_changed=false", s.to_sql(""));
     }
 
     #[test]
@@ -635,8 +644,10 @@ mod should {
 
     #[test]
     fn to_html() {
-        let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12') AND age=10-19 ; artnr, ^nummer, age"#;
+        let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12') AND age=10..19 ; artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
+        assert_eq!(s.to_sql(""), "  ( NOT artikelnummer='23342' AND ( positionstext LIKE 'irgend \"ein\" langer Text!%' OR price=35.12 ) \
+            AND ( age>=10 AND age<19 ) ) ORDER BY artikelnummer, promille DESC, age");
         let res = s.as_html();
         assert_eq!(
             res,
@@ -668,9 +679,23 @@ mod should {
         assert_eq!("  ( age>=10 AND age<19 )", s.to_sql(""));
 
         let s = SUCHBAR
-            .exec(&ADMIN, "age=10-19")
+            .exec(&ADMIN, "age=10~19")
             .expect("This should not panic!");
         assert_eq!("  ( age>=10 AND age<19 )", s.to_sql(""));
+        let s = SUCHBAR
+            .exec(&ADMIN, "ch='1.1.2020' .. '2023-12-31'")
+            .expect("This should not panic!");
+        assert_eq!(
+            "  ( changed>='2020-01-01' AND changed<'2023-12-31' )",
+            s.to_sql("")
+        );
+        let s = SUCHBAR
+            .exec(&ADMIN, "ch=2020-01-01..2023-12-31")
+            .expect("This should not panic!");
+        assert_eq!(
+            "  ( changed>='2020-01-01' AND changed<'2023-12-31' )",
+            s.to_sql("")
+        );
     }
 
     #[test]
@@ -706,14 +731,23 @@ mod should {
     #[test]
     fn parse_iso_dates() {
         let s = SUCHBAR
-            .exec(&ADMIN, "ch=2022-12-24")
+            .exec(&ADMIN, r#"ch="2022-12-24""#)
             .expect("This should not panic!");
         assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
 
         let s = SUCHBAR
-            .exec(&ADMIN, r#"ch="2022-12-24""#)
+            .exec(&ADMIN, r#"ch=2022-1-2"#)
+            .expect("This should not panic!");
+        assert_eq!(" WHERE changed='2022-01-02'", s.to_sql("WHERE"));
+
+        let s = SUCHBAR
+            .exec(&ADMIN, r#"ch=24.12.2022"#)
             .expect("This should not panic!");
         assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
+        let s = SUCHBAR
+            .exec(&ADMIN, r#"ch=2.1.2022"#)
+            .expect("This should not panic!");
+        assert_eq!(" WHERE changed='2022-01-02'", s.to_sql("WHERE"));
     }
 
     #[test]

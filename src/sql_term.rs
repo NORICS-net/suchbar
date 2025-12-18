@@ -8,9 +8,9 @@ use timewarp::Direction;
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 pub enum SQLTerm {
-    AND(Vec<SQLTerm>),
-    OR(Vec<SQLTerm>),
-    NOT(Box<SQLTerm>),
+    AND(Vec<Self>),
+    OR(Vec<Self>),
+    NOT(Box<Self>),
     VALUE(DbField, CompOp, Direction, String),
     LIKE(DbField, String),
     DENIED,
