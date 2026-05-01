@@ -20,6 +20,37 @@ pub struct Suchbar {
     options: SuchOptions,
 }
 
+/// Encodes an utf-8 string for use in a URL query.
+///
+/// For a better understanding read:
+/// * [What every web developer must know about URL encoding](https://web.archive.org/web/20151229061347/http://blog.lunatech.com/2009/02/03/what-every-web-developer-must-know-about-url-encoding)
+/// * [RFC 3986 Section 3.4](https://www.rfc-editor.org/rfc/rfc3986#section-3.4)
+///
+///  ```text
+///  query       = *( pchar / "/" / "?" )
+///  pchar       = unreserved / pct-encoded / sub-delims / ":" / "@"
+///  pct-encoded = "%" HEXDIG HEXDIG
+///  sub-delims  = "!" / "$" / "'" / "(" / ")" / "*" / "," / ";" / "="
+///  ```
+pub fn url_query_encode(s: impl Display) -> String {
+    s.to_string()
+        .chars()
+        .map(|c| match c {
+            ' ' => String::from("+"),
+            '/' | '?' | ':' | '@' | '!' | '$' | '\'' | '(' | ')' | '*' | ',' | ';' | '=' => {
+                String::from(c)
+            }
+            _ if c.is_ascii_alphanumeric() => String::from(c),
+            // percent encode all other characters
+            _ => c
+                .encode_utf8(&mut [0u8; 4])
+                .as_bytes()
+                .iter()
+                .fold(String::new(), |acc, b| acc + &format!("%{b:02X}")),
+        })
+        .collect::<String>()
+}
+
 /// Options for `Suchbar`.
 #[derive(Default, Debug)]
 pub struct SuchOptions {
@@ -306,6 +337,13 @@ impl WhereClause {
             format!(" ORDER BY {}", self.order_by())
         };
         format!("{whr}{sort}")
+    }
+
+    pub fn as_url_query_param(&self) -> String {
+        self.sql_term
+            .as_text(Style::Url)
+            .map(url_query_encode)
+            .unwrap_or_default()
     }
 
     /// Returns the query as a compact text, useful for embedding in URLs.
@@ -628,7 +666,46 @@ mod should {
     }
 
     #[test]
-    fn to_text() {
+    fn url_query() {
+        assert_eq!(
+            super::url_query_encode("große Änderungen — wie hier!"),
+            String::from("gro%C3%9Fe+%C3%84nderungen+%E2%80%94+wie+hier!")
+        );
+    }
+
+    #[test]
+    fn as_compact() {
+        let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12'); artnr, ^nummer, age"#;
+        let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
+        let res = s.as_compact();
+        assert_eq!(
+            res,
+            r#"(artnr!="23342"&&(desc="irgend \"ein\" langer Text!*"||preis=35,12))"#
+        );
+        let s = SUCHBAR
+            .exec(&ADMIN, &s.as_compact())
+            .expect("This should not panic!");
+        assert_eq!(res, s.as_compact());
+    }
+
+    #[test]
+    fn as_url_query_param() {
+        let query = r#"ano!=23342 AND(desc=^'irgend "eine" lange Straße' OR price='35,12'); artnr, ^nummer, age"#;
+        let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
+        let res = s.as_url_query_param();
+        assert_eq!(
+            res,
+            r#"(ART!=23342+AND+(DESC='irgend+%22eine%22+lange+Stra%C3%9Fe*'+OR+P=35,12))"#
+        );
+        let decoded = r#"(artnr!=23342&&(desc='irgend "eine" lange Straße*'||preis=35,12))"#;
+        let s = SUCHBAR
+            .exec(&ADMIN, decoded)
+            .expect("This should not panic!");
+        assert_eq!(res, s.as_url_query_param());
+    }
+
+    #[test]
+    fn as_text() {
         let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12'); artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
         let res = s.as_text();
@@ -643,7 +720,7 @@ mod should {
     }
 
     #[test]
-    fn to_html() {
+    fn as_html() {
         let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12') AND age=10..19 ; artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
         assert_eq!(s.to_sql(""), "  ( NOT artikelnummer='23342' AND ( positionstext LIKE 'irgend \"ein\" langer Text!%' OR price=35.12 ) \
@@ -653,19 +730,19 @@ mod should {
             res,
             "<span class=\"syntax_bracket\"><span class=\"syntax_b_start\">(</span>\
             <div class=\"syntax_in_brackets\">\
-                <span class=\"syntax_field\">artnr</span><span class=\"syntax_operator\">!=</span><span class=\"syntax_text\">\"23342\"</span>\
+                <span class=\"syntax_field\">ARTNR</span><span class=\"syntax_operator\">!=</span><span class=\"syntax_text\">\"23342\"</span>\
                 <span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span><span class=\"syntax_bracket\"><span class=\"syntax_b_start\">(</span>\
                 <div class=\"syntax_in_brackets\">\
-                    <span class=\"syntax_field\">desc</span><span class=\"syntax_operator\">=</span><span class=\"syntax_text\">\"irgend \\\"ein\\\" langer Text!*\"</span>\
+                    <span class=\"syntax_field\">DESC</span><span class=\"syntax_operator\">=</span><span class=\"syntax_text\">\"irgend \\\"ein\\\" langer Text!*\"</span>\
                     <span class=\"syntax_combinator syntax_c_or\">||</span>\
-                    <span class=\"syntax_field\">preis</span><span class=\"syntax_operator\">=</span><span class=\"syntax_number\">35,12</span>\
+                    <span class=\"syntax_field\">PREIS</span><span class=\"syntax_operator\">=</span><span class=\"syntax_number\">35,12</span>\
                 </div><span class=\"syntax_b_end\">)</span></span>\
                 <span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span>\
                 <span class=\"syntax_bracket\"><span class=\"syntax_b_start\">(</span>\
                 <div class=\"syntax_in_brackets\">\
-                <span class=\"syntax_field\">alter</span><span class=\"syntax_operator\">&ge;</span><span class=\"syntax_number\">10</span>\
+                <span class=\"syntax_field\">ALTER</span><span class=\"syntax_operator\">&ge;</span><span class=\"syntax_number\">10</span>\
                 <span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span>\
-                <span class=\"syntax_field\">alter</span><span class=\"syntax_operator\">&lt;</span><span class=\"syntax_number\">19</span></div>\
+                <span class=\"syntax_field\">ALTER</span><span class=\"syntax_operator\">&lt;</span><span class=\"syntax_number\">19</span></div>\
             <span class=\"syntax_b_end\">)</span></span></div>\
             <span class=\"syntax_b_end\">)</span></span>"
         );

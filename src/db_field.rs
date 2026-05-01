@@ -95,10 +95,13 @@ impl DbField {
     }
 
     pub fn as_text(&self, style: Style, eq: CompOp, val: &str) -> String {
-        let name = self.alias[0];
-        let escaped = val.replace(r#"\""#, r#"""#).replace(r#"""#, r#"\""#);
+        let escaped = val
+            .replace(r#"\""#, r#"""#)
+            .replace(r#"\'"#, r#"'"#)
+            .replace(r#"""#, r#"\""#);
         match style {
             Style::Html => {
+                let name = self.alias[0].to_uppercase();
                 if self.is_text() {
                     format!(
                         r#"<span class="syntax_field">{name}</span><span class="syntax_operator">{}</span><span class="syntax_text">"{escaped}"</span>"#,
@@ -112,7 +115,25 @@ impl DbField {
                     )
                 }
             }
+            Style::Url => {
+                let name = self
+                    .alias
+                    .iter()
+                    .min_by(|a, b| a.len().cmp(&b.len()))
+                    .unwrap()
+                    .to_uppercase();
+                let escaped = val
+                    .replace(r#"\'"#, r#"'"#)
+                    .replace(r#"\""#, r#"""#)
+                    .replace(r#"'"#, r#"\'"#);
+                if self.is_text() && (val.contains(' ') || val.contains('&') || val.contains('|')) {
+                    format!("{name}{eq}'{escaped}'")
+                } else {
+                    format!("{name}{eq}{escaped}")
+                }
+            }
             _ => {
+                let name = self.alias[0];
                 if self.is_text() {
                     format!("{name}{eq}\"{escaped}\"")
                 } else {

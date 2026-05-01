@@ -21,6 +21,7 @@ pub enum Style {
     Compact,
     Pretty,
     Html,
+    Url,
 }
 
 enum Combinator {
@@ -41,6 +42,7 @@ impl Combinator {
             Style::Compact => self.to_compact(),
             Style::Pretty => self.to_pretty(),
             Style::Html => self.to_html(),
+            Style::Url => self.to_url(),
         }
     }
 
@@ -48,6 +50,13 @@ impl Combinator {
         match self {
             Self::And => "&&",
             Self::Or => "||",
+        }
+    }
+
+    const fn to_url(&self) -> &'static str {
+        match self {
+            Self::And => " AND ",
+            Self::Or => " OR ",
         }
     }
 
