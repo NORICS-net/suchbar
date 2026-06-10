@@ -35,32 +35,29 @@ WHERE
     ( pb.postcode>='26440' AND
       pb.postcode<='26452'
     ) OR
-    ( pa.shortname LIKE '%Eisen%' OR
-      pa.description LIKE '%Eisen%' OR
-      pa.taxnumber LIKE '%Eisen%' OR
-      pb.city LIKE '%Eisen%' OR
-      pb.street LIKE '%Eisen%'
+    ( pa.shortname ILIKE '%Eisen%' OR
+      pa.description ILIKE '%Eisen%' OR
+      pa.taxnumber ILIKE '%Eisen%' OR
+      pb.city ILIKE '%Eisen%' OR
+      pb.street ILIKE '%Eisen%'
     ) AND
-    NOT pa.shortname LIKE 'Hammer%'
+    NOT pa.shortname ILIKE 'Hammer%'
  )
 LIMIT 20;
 ```
 
-| Boolean Operator |Alternative Symbol	 | Description                                                                         |
-|:----------------:|:------------------:|:---------------------------------------------------------------------------------------|
-|       AND        |         &&         | 	Requires both terms on either side of the Boolean operator to be present for a match. |
-|       NOT        |         !	        |   Requires that the following term not be present.                                      |
-|       OR         |    &vert;&vert;    | 	Requires that either term (or both terms) be present for a match.                     |
-
+| Boolean Operator | Alternative Symbol | Description                                                                           |
+| :--------------: | :----------------: | :------------------------------------------------------------------------------------ |
+|       AND        |         &&         | Requires both terms on either side of the Boolean operator to be present for a match. |
+|       NOT        |         !          | Requires that the following term not be present.                                      |
+|        OR        |    &vert;&vert;    | Requires that either term (or both terms) be present for a match.                     |
 
 ## Usage:
-
 
 ### Register the search-fields.
 
 The fields available for searching are registered:
 `DbField::new("db-fieldname", db-type, "permission", &["name", "alternative_name", "abbr"]),`
-
 
 ## Example
 

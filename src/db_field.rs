@@ -3,7 +3,7 @@ use crate::comp_op::CompOp;
 use crate::error::SuchError;
 use crate::error::SuchError::ParseError;
 use crate::sql_term::Style;
-use timewarp::{date_matcher, Direction, Doy};
+use timewarp::{Direction, Doy, date_matcher};
 
 fn try_bool(str: &str) -> Result<bool, SuchError> {
     let str = str.trim().to_ascii_lowercase();
@@ -88,9 +88,12 @@ impl DbField {
             db_name, db_type, ..
         } = self;
         match db_type {
-            VARCHAR(_) | TEXT => Ok(format!("{db_name} LIKE '{}'", db_type.sql_safe(val)?)),
+            VARCHAR(_) | TEXT => Ok(format!("{db_name} ILIKE '{}'", db_type.sql_safe(val)?)),
             DATE | TIMESTAMP => Err(SuchError::LikeNotPossible),
-            _ => Ok(format!("{db_name}::TEXT LIKE '{}'", db_type.sql_safe(val)?)),
+            _ => Ok(format!(
+                "{db_name}::TEXT ILIKE '{}'",
+                db_type.sql_safe(val)?
+            )),
         }
     }
 
@@ -116,20 +119,33 @@ impl DbField {
                 }
             }
             Style::Url => {
-                let name = self
-                    .alias
-                    .iter()
-                    .min_by(|a, b| a.len().cmp(&b.len()))
-                    .unwrap()
-                    .to_uppercase();
+                let name = self.shortest_alias().to_uppercase();
                 let escaped = val
                     .replace(r#"\'"#, r#"'"#)
                     .replace(r#"\""#, r#"""#)
                     .replace(r#"'"#, r#"\'"#);
-                if self.is_text() && (val.contains(' ') || val.contains('&') || val.contains('|')) {
+                if self.is_text()
+                    && (val.contains(' ')
+                        || val.contains('&')
+                        || val.contains('|')
+                        || val.contains('='))
+                {
                     format!("{name}{eq}'{escaped}'")
                 } else {
                     format!("{name}{eq}{escaped}")
+                }
+            }
+            Style::Compact => {
+                let name = self.shortest_alias();
+                if self.is_text()
+                    && (val.contains(' ')
+                        || val.contains('&')
+                        || val.contains('|')
+                        || val.contains('='))
+                {
+                    format!("{name}{eq}\"{escaped}\"")
+                } else {
+                    format!("{name}{eq}{val}")
                 }
             }
             _ => {
@@ -152,6 +168,14 @@ impl DbField {
     #[must_use]
     pub fn aliases(&self) -> String {
         format!("[{}]", self.alias.join(", "))
+    }
+
+    pub fn shortest_alias(&self) -> String {
+        self.alias
+            .iter()
+            .min_by(|a, b| a.len().cmp(&b.len()))
+            .unwrap()
+            .to_string()
     }
 
     /// Returns a simplified Type.
@@ -263,15 +287,31 @@ impl SortField {
             if self.desc { " DESC" } else { "" }
         )
     }
+
+    pub fn as_text(&self) -> String {
+        if self.desc {
+            format!("^{}", self.field.alias[0])
+        } else {
+            self.field.alias[0].to_string()
+        }
+    }
+
+    pub fn as_compact(&self) -> String {
+        if self.desc {
+            format!("^{}", self.field.shortest_alias())
+        } else {
+            self.field.shortest_alias()
+        }
+    }
 }
 
 #[cfg(test)]
 mod should {
+    use crate::DbType::TIMESTAMP;
     use crate::comp_op::CompOp;
     use crate::db_field::DbField;
     use crate::db_field::DbType::{BOOL, DATE, INTEGER, VARCHAR};
     use crate::sql_term::SQLTerm::{AND, LIKE, NOT, OR, VALUE};
-    use crate::DbType::TIMESTAMP;
     use timewarp::Direction::From;
 
     const ARTIKEL: DbField = DbField::new(
@@ -301,7 +341,7 @@ mod should {
         assert_eq!(
             df.to_sql().unwrap(),
             "( article>'1245667' AND ( NOT aktiv=false OR end_date<=\
-            '2022-12-24' OR ma_active LIKE 'Micha''s cat%' ) )"
+            '2022-12-24' OR ma_active ILIKE 'Micha''s cat%' ) )"
         );
 
         let df = VALUE(PRICE, CompOp::Equal, From, "1000.0".into());
