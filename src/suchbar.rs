@@ -88,6 +88,43 @@ impl Suchbar {
         buf
     }
 
+    /// List available and allowed search-keywords in JSON for input-helper-tools.
+    ///
+    /// ```json
+    ///  [
+    ///     {
+    ///         "keywords": [
+    ///             "offernumber",
+    ///             "angebotsnummer",
+    ///             "anr"
+    ///         ],
+    ///         "type": "text"
+    ///     },
+    ///     ...
+    ///     ]
+    /// ```
+    pub fn keywords(&self, permission: &impl Permeable) -> String {
+        let array = self
+            .db_fields
+            .iter()
+            .filter(|f| permission.has_perm(f.permission).is_ok())
+            .map(|f| {
+                let fields = f
+                    .alias
+                    .iter()
+                    .map(|a| format!(r#""{a}""#))
+                    .collect::<Vec<String>>()
+                    .join(",");
+                format!(
+                    r#"{{"keywords":[{fields}],"type":"{}"}}"#,
+                    f.db_type().to_lowercase()
+                )
+            })
+            .collect::<Vec<String>>()
+            .join(",");
+        format!("[{array}]")
+    }
+
     /// Creates a `WhereClause` from the given `query` depending on th user's `permission`.
     ///
     /// # Errors
