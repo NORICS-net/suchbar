@@ -1,7 +1,7 @@
 use crate::comp_op::CompOp::{self, Equal, NotEqual};
 use crate::db_field::{DbField, SortField};
 use crate::error::SuchError;
-use crate::sql_term::SQLTerm::{self, AND, DENIED, LIKE, NOT, OR, VALUE};
+use crate::sql_term::SQLTerm::{self, AND, BETWEEN, DENIED, LIKE, LIKETERM, NOT, OR, TERM, VALUE};
 use crate::sql_term::Style;
 use permeable::Permeable;
 use pest::Parser;
@@ -170,7 +170,6 @@ impl Suchbar {
         let mut or = false;
         let mut comp_op = CompOp::Equal;
         for exp in expr.into_inner() {
-            //println!("** Suchbar::parse_expr:: {:?}", exp);
             match exp.as_rule() {
                 Rule::field => {
                     if let Ok(field) = self.parse_field(perm, exp, comp_op) {
@@ -195,7 +194,6 @@ impl Suchbar {
         let mut not = not == NotEqual;
         let mut comp_op = CompOp::default();
         for exp in expr.into_inner() {
-            // println!("!!! Suchbar::parse_field:: {exp:?}");
             match exp.as_rule() {
                 Rule::eq => comp_op = CompOp::from_str(exp.as_str()).unwrap_or_default(),
                 Rule::field_name => name = exp.as_str(),
@@ -225,7 +223,7 @@ impl Suchbar {
         comp_op: CompOp,
         expr: Pair<Rule>,
     ) -> SQLTerm {
-        use Direction::{From, To};
+        use Direction::From;
         let mut value = String::new();
         let mut like_ending = false;
         let mut like_starting = false;
@@ -262,25 +260,27 @@ impl Suchbar {
                     let value = match (like_starting, like_ending) {
                         (true, false) => format!("*{value}"),
                         (false, true) => format!("{value}*"),
-                        _ => format!("*{value}*"),
+                        (true, true) => format!("*{value}*"),
+                        _ => value.clone(),
                     };
                     if comp_op == NotEqual {
-                        NOT(Box::new(LIKE(sf, value)))
+                        NOT(Box::new(LIKE(sf, value.clone())))
                     } else {
-                        LIKE(sf, value)
+                        if name.is_none() {
+                            TERM(sf, value.clone())
+                        } else {
+                            LIKE(sf, value.clone())
+                        }
                     }
                 } else if name.is_none() {
                     // list of terms means LIKE-search for text-fields.
                     if sf.is_text() || self.options.like_in_numerics {
-                        LIKE(sf, format!("*{value}*"))
+                        LIKETERM(sf, value.clone())
                     } else {
-                        VALUE(sf, Equal, From, value.clone())
+                        TERM(sf, value.clone())
                     }
                 } else if to_val.is_some() {
-                    AND(vec![
-                        VALUE(sf.clone(), CompOp::Gte, From, value.clone()),
-                        VALUE(sf, CompOp::Lt, To, to_val.clone().unwrap_or_default()),
-                    ])
+                    BETWEEN(sf, value.clone(), to_val.clone().unwrap_or_default())
                 } else if comp_op == NotEqual {
                     NOT(Box::new(VALUE(sf, Equal, From, value.clone())))
                 } else {
@@ -350,15 +350,15 @@ impl WhereClause {
     ///
     /// let exec = SUCHBAR.exec(&AllowAllPermission(), "sn=Don* AND n=Duck").unwrap();
     /// assert_eq!("( surname ILIKE 'Don%' AND givenname='Duck' )", exec.where_clause().unwrap());
-    /// assert_eq!(" WHERE ( surname ILIKE 'Don%' AND givenname='Duck' )", exec.to_sql("WHERE"));
+    /// assert_eq!(" WHERE ( surname ILIKE 'Don%' AND givenname='Duck' )", exec.to_sql("WHERE").unwrap());
     ///
     /// let exec = SUCHBAR.exec(&AllowAllPermission(), "sn=Don*;givenname, age ^sname").unwrap();
     /// assert_eq!("surname ILIKE 'Don%'", exec.where_clause().unwrap());
     /// assert_eq!("givenname, surname DESC", exec.order_by());
-    /// assert_eq!(" WHERE surname ILIKE 'Don%' ORDER BY givenname, surname DESC", exec.to_sql("WHERE"));
+    /// assert_eq!(" WHERE surname ILIKE 'Don%' ORDER BY givenname, surname DESC", exec.to_sql("WHERE").unwrap());
     /// ```
-    pub fn to_sql(&self, concatenate: impl Display) -> String {
-        let whr = self.where_clause().unwrap_or_default();
+    pub fn to_sql(&self, concatenate: impl Display) -> Result<String, SuchError> {
+        let whr = self.where_clause()?;
         let whr = if whr.is_empty() {
             whr
         } else {
@@ -369,48 +369,45 @@ impl WhereClause {
         } else {
             format!(" ORDER BY {}", self.order_by())
         };
-        format!("{whr}{sort}")
+        Ok(format!("{whr}{sort}"))
     }
 
-    pub fn as_url_query_param(&self) -> String {
-        self.sql_term
-            .as_text(Style::Url)
-            .map(url_query_encode)
-            .unwrap_or_default()
+    pub fn as_url_query_param(&self) -> Result<String, SuchError> {
+        self.sql_term.as_text(Style::Url).map(url_query_encode)
     }
 
     /// Returns the query as a compact text, useful for embedding in URLs.
-    pub fn as_compact(&self) -> String {
+    pub fn as_compact(&self) -> Result<String, SuchError> {
         if self.sort_field.is_empty() {
-            return self.sql_term.as_text(Style::Compact).unwrap_or_default();
+            return self.sql_term.as_text(Style::Compact);
         }
 
-        format!(
+        Ok(format!(
             "{};{}",
-            self.sql_term.as_text(Style::Compact).unwrap_or_default(),
+            self.sql_term.as_text(Style::Compact)?,
             self.sort_field
                 .iter()
                 .map(SortField::as_compact)
                 .collect::<Vec<String>>()
                 .join(",")
-        )
+        ))
     }
 
     /// Returns the query as a pretty text.
-    pub fn as_text(&self) -> String {
+    pub fn as_text(&self) -> Result<String, SuchError> {
         if self.sort_field.is_empty() {
-            return self.sql_term.as_text(Style::Pretty).unwrap_or_default();
+            return self.sql_term.as_text(Style::Pretty);
         }
 
-        format!(
+        Ok(format!(
             "{}; {}",
-            self.sql_term.as_text(Style::Pretty).unwrap_or_default(),
+            self.sql_term.as_text(Style::Pretty)?,
             self.sort_field
                 .iter()
                 .map(SortField::as_text)
                 .collect::<Vec<String>>()
                 .join(", ")
-        )
+        ))
     }
 
     /// Returns the query as HTML with syntax highlighting.
@@ -430,14 +427,14 @@ impl WhereClause {
     ///  * `syntax_operator`
     ///  * `syntax_string`
     ///
-    pub fn as_html(&self) -> String {
+    pub fn as_html(&self) -> Result<String, SuchError> {
         if self.sort_field.is_empty() {
-            return self.sql_term.as_text(Style::Html).unwrap_or_default();
+            return self.sql_term.as_text(Style::Html);
         }
 
-        format!(
+        Ok(format!(
             "{}; {}",
-            self.sql_term.as_text(Style::Html).unwrap_or_default(),
+            self.sql_term.as_text(Style::Html)?,
             self.sort_field
                 .iter()
                 .map(|f| format!(
@@ -446,7 +443,7 @@ impl WhereClause {
                 ))
                 .collect::<Vec<String>>()
                 .join(",")
-        )
+        ))
     }
 
     /// Returns the WHERE-clause as SQL.
@@ -472,6 +469,7 @@ impl WhereClause {
 mod should {
     use super::Suchbar;
     use crate::DbType::DATE;
+    use crate::SuchError;
     use crate::db_field::DbField;
     use crate::db_field::DbType::{BOOL, INTEGER, NUMERIC, TEXT, VARCHAR};
     use crate::suchbar::SuchOptions;
@@ -544,49 +542,50 @@ mod should {
     }
 
     #[test]
-    fn parse_not_equal_as_admin() {
+    fn parse_not_equal_as_admin() -> Result<(), SuchError> {
         let s = SUCHBAR
             .exec(&ADMIN, "age!=123")
             .expect("This should not panic!");
-        assert_eq!("  NOT age=123", s.to_sql(""));
+        assert_eq!("  NOT age=123", s.to_sql("")?);
         let s = SUCHBAR
             .exec(&ADMIN, "NOT age=123")
             .expect("This should not panic!");
-        assert_eq!("  NOT age=123", s.to_sql(""));
+        assert_eq!("  NOT age=123", s.to_sql("")?);
         let s = SUCHBAR
             .exec(&ADMIN, "ptext!=A")
             .expect("This should not panic!");
-        assert_eq!("  NOT positionstext='A'", s.to_sql(""));
+        assert_eq!("  NOT positionstext='A'", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, " ptext != AAA*")
             .expect("This should not panic!");
-        assert_eq!("  NOT positionstext ILIKE 'AAA%'", s.to_sql(""));
+        assert_eq!("  NOT positionstext ILIKE 'AAA%'", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, "NOT ptext == AAA*")
             .expect("This should not panic!");
-        assert_eq!("  NOT positionstext ILIKE 'AAA%'", s.to_sql(""));
+        assert_eq!("  NOT positionstext ILIKE 'AAA%'", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, "NOT ptext != AAA*")
             .expect("This should not panic!");
-        assert_eq!("  positionstext ILIKE 'AAA%'", s.to_sql(""));
+        assert_eq!("  positionstext ILIKE 'AAA%'", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, "ptext=Schlößchen*")
             .expect("This should not panic!");
-        assert_eq!("  positionstext ILIKE 'Schlößchen%'", s.to_sql(""));
+        assert_eq!("  positionstext ILIKE 'Schlößchen%'", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, "ptext=Name\\ Surname*")
             .expect("This should not panic!");
-        assert_eq!("  positionstext ILIKE 'Name Surname%'", s.to_sql(""));
+        assert_eq!("  positionstext ILIKE 'Name Surname%'", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, "änderung=No")
             .expect("This should not panic!");
-        assert_eq!("  is_changed=false", s.to_sql(""));
+        assert_eq!("  is_changed=false", s.to_sql("")?);
+        Ok(())
     }
 
     #[test]
@@ -608,43 +607,44 @@ mod should {
     }
 
     #[test]
-    fn parse_not_equal_as_user() {
+    fn parse_not_equal_as_user() -> Result<(), SuchError> {
         let s = SUCHBAR
             .exec(&USER, "age!=123")
             .expect("This should not panic!");
-        assert_eq!("", s.to_sql(""));
+        assert!(s.to_sql("").is_err());
         let s = SUCHBAR
             .exec(&USER, "NOT age=123")
             .expect("This should not panic!");
-        assert_eq!("", s.to_sql(""));
+        assert!(s.to_sql("").is_err());
         let s = SUCHBAR
             .exec(&USER, "ptext!=A")
             .expect("This should not panic!");
-        assert_eq!("  NOT positionstext='A'", s.to_sql(""));
+        assert_eq!("  NOT positionstext='A'", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&USER, " ptext != AAA*")
             .expect("This should not panic!");
-        assert_eq!("  NOT positionstext ILIKE 'AAA%'", s.to_sql(""));
+        assert_eq!("  NOT positionstext ILIKE 'AAA%'", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&USER, "NOT ptext == AAA*")
             .expect("This should not panic!");
-        assert_eq!("  NOT positionstext ILIKE 'AAA%'", s.to_sql(""));
+        assert_eq!("  NOT positionstext ILIKE 'AAA%'", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&USER, "NOT ptext != AAA*")
             .expect("This should not panic!");
-        assert_eq!("  positionstext ILIKE 'AAA%'", s.to_sql(""));
+        assert_eq!("  positionstext ILIKE 'AAA%'", s.to_sql("")?);
+        Ok(())
     }
 
     #[test]
-    fn parse_integer_query_std() {
+    fn parse_integer_query_std() -> Result<(), SuchError> {
         let s = SUCHBAR.exec(&ADMIN, "123").expect("This should not panic!");
         assert_eq!(
             "  ( artikelnummer ILIKE '%123%' OR positionstext ILIKE '%123%' OR \
             price=123 OR age=123 OR promille=123 )",
-            s.to_sql("")
+            s.to_sql("")?
         );
         let s = SUCHBAR
             .exec(&ADMIN, "1234")
@@ -652,12 +652,13 @@ mod should {
         assert_eq!(
             "  ( artikelnummer ILIKE '%1234%' OR positionstext ILIKE '%1234%' \
             OR price=1234 )",
-            s.to_sql("")
+            s.to_sql("")?
         );
+        Ok(())
     }
 
     #[test]
-    fn parse_integer_query_like() {
+    fn parse_integer_query_like() -> Result<(), SuchError> {
         let likebar = Suchbar {
             options: SuchOptions {
                 like_in_numerics: true,
@@ -668,7 +669,7 @@ mod should {
         assert_eq!(
             "  ( artikelnummer ILIKE '%123%' OR positionstext ILIKE '%123%' OR price::TEXT ILIKE '%123%' \
             OR age::TEXT ILIKE '%123%' OR promille::TEXT ILIKE '%123%' )",
-            s.to_sql("")
+            s.to_sql("")?
         );
         let s = likebar
             .exec(&ADMIN, "1234")
@@ -676,65 +677,68 @@ mod should {
         assert_eq!(
             "  ( artikelnummer ILIKE '%1234%' OR positionstext ILIKE '%1234%' OR \
             price::TEXT ILIKE '%1234%' )",
-            s.to_sql("")
+            s.to_sql("")?
         );
+        Ok(())
     }
 
     #[test]
-    fn parse_like_query() {
+    fn parse_like_query() -> Result<(), SuchError> {
         let s = SUCHBAR
             .exec(&ADMIN, "art='2332*'")
             .expect("This should not panic!");
-        assert_eq!("  artikelnummer ILIKE '2332%'", s.to_sql(""));
-        assert_eq!("art=2332*", s.as_compact());
+        assert_eq!("  artikelnummer ILIKE '2332%'", s.to_sql("")?);
+        assert_eq!("art=2332*", s.as_compact()?);
         let s = SUCHBAR
             .exec(&ADMIN, "art=2332*")
             .expect("This should not panic!");
-        assert_eq!("  artikelnummer ILIKE '2332%'", s.to_sql(""));
+        assert_eq!("  artikelnummer ILIKE '2332%'", s.to_sql("")?);
         let s = SUCHBAR
             .exec(&ADMIN, "art=2332$")
             .expect("This should not panic!");
-        assert_eq!("  artikelnummer ILIKE '%2332'", s.to_sql(""));
+        assert_eq!("  artikelnummer ILIKE '%2332'", s.to_sql("")?);
         let s = SUCHBAR
             .exec(&ADMIN, "art='*2332*'")
             .expect("This should not panic!");
-        assert_eq!("  artikelnummer ILIKE '%2332%'", s.to_sql(""));
+        assert_eq!("  artikelnummer ILIKE '%2332%'", s.to_sql("")?);
         let s = SUCHBAR
             .exec(&ADMIN, "art=^'2332'")
             .expect("This should not panic!");
-        assert_eq!("  artikelnummer ILIKE '2332%'", s.to_sql(""));
-        assert_eq!("art=2332*", s.as_compact());
+        assert_eq!("  artikelnummer ILIKE '2332%'", s.to_sql("")?);
+        assert_eq!("art=2332*", s.as_compact()?);
+        Ok(())
     }
 
     #[test]
-    fn parse_misc_query() {
+    fn parse_misc_query() -> Result<(), SuchError> {
         let query = r#"ano!=23342 AND (desc=^"irgend ein langer Text!" OR price=35,12); artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
         assert_eq!(
             "  ( NOT artikelnummer='23342' AND ( positionstext ILIKE 'irgend ein langer Text!%' \
             OR price=35.12 ) ) ORDER BY artikelnummer, promille DESC, age",
-            s.to_sql("")
+            s.to_sql("")?
         );
         assert_eq!(
             r#"(art!=23342&&(desc="irgend ein langer Text!*"||p=35,12));art,^num,age"#,
-            s.as_compact()
+            s.as_compact()?
         );
         assert_eq!(
             r#"(artnr!="23342" && (desc="irgend ein langer Text!*" || preis=35,12)); artnr, ^nummer, alter"#,
-            s.as_text()
+            s.as_text()?
         );
 
-        let query = s.as_compact();
+        let query = s.as_compact()?;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
         assert_eq!(
             "  ( NOT artikelnummer='23342' AND ( positionstext ILIKE 'irgend ein langer Text!%' \
             OR price=35.12 ) ) ORDER BY artikelnummer, promille DESC, age",
-            s.to_sql("")
+            s.to_sql("")?
         );
         assert_eq!(
             "(art!=23342&&(desc=\"irgend ein langer Text!*\"||p=35,12));art,^num,age",
-            s.as_compact()
+            s.as_compact()?
         );
+        Ok(())
     }
 
     #[test]
@@ -746,25 +750,26 @@ mod should {
     }
 
     #[test]
-    fn as_compact() {
+    fn as_compact() -> Result<(), SuchError> {
         let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12'); artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
-        let res = s.as_compact();
+        let res = s.as_compact()?;
         assert_eq!(
             res,
             r#"(art!=23342&&(desc="irgend \"ein\" langer Text!*"||p=35,12));art,^num,age"#
         );
         let s = SUCHBAR
-            .exec(&ADMIN, &s.as_compact())
+            .exec(&ADMIN, &s.as_compact()?)
             .expect("This should not panic!");
-        assert_eq!(res, s.as_compact());
+        assert_eq!(res, s.as_compact()?);
+        Ok(())
     }
 
     #[test]
-    fn as_url_query_param() {
+    fn as_url_query_param() -> Result<(), SuchError> {
         let query = r#"ano!=23342 AND(desc=^'irgend "eine" lange Straße' OR price='35,12'); artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
-        let res = s.as_url_query_param();
+        let res = s.as_url_query_param()?;
         assert_eq!(
             res,
             r#"(ART!=23342+AND+(DESC='irgend+%22eine%22+lange+Stra%C3%9Fe*'+OR+P=35,12))"#
@@ -773,34 +778,36 @@ mod should {
         let s = SUCHBAR
             .exec(&ADMIN, decoded)
             .expect("This should not panic!");
-        assert_eq!(res, s.as_url_query_param());
+        assert_eq!(res, s.as_url_query_param()?);
+        Ok(())
     }
 
     #[test]
-    fn as_text() {
+    fn as_text() -> Result<(), SuchError> {
         let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12'); artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
-        let res = s.as_text();
+        let res = s.as_text()?;
         assert_eq!(
             r#"(artnr!="23342" && (desc="irgend \"ein\" langer Text!*" || preis=35,12)); artnr, ^nummer, alter"#,
             res
         );
         let s = SUCHBAR
-            .exec(&ADMIN, &s.as_compact())
+            .exec(&ADMIN, &s.as_compact()?)
             .expect("This should not panic!");
-        assert_eq!(res, s.as_text());
+        assert_eq!(res, s.as_text()?);
+        Ok(())
     }
 
     #[test]
-    fn as_html() {
+    fn as_html() -> Result<(), SuchError> {
         let query = r#"ano!=23342 AND(desc=^'irgend "ein" langer Text!' OR price='35,12') AND age=10..19 ; artnr, ^nummer, age"#;
         let s = SUCHBAR.exec(&ADMIN, query).expect("This should not panic!");
         assert_eq!(
-            s.to_sql(""),
+            s.to_sql("")?,
             "  ( NOT artikelnummer='23342' AND ( positionstext ILIKE 'irgend \"ein\" langer Text!%' OR price=35.12 ) \
-            AND ( age>=10 AND age<19 ) ) ORDER BY artikelnummer, promille DESC, age"
+            AND age BETWEEN 10 AND 19 ) ORDER BY artikelnummer, promille DESC, age"
         );
-        let res = s.as_html();
+        let res = s.as_html()?;
         assert_eq!(
             res,
             "<span class=\"syntax_bracket\"><span class=\"syntax_b_start\">(</span>\
@@ -812,55 +819,54 @@ mod should {
                     <span class=\"syntax_combinator syntax_c_or\">||</span>\
                     <span class=\"syntax_field\">PREIS</span><span class=\"syntax_operator\">=</span><span class=\"syntax_number\">35,12</span>\
                 </div><span class=\"syntax_b_end\">)</span></span>\
-                <span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span>\
-                <span class=\"syntax_bracket\"><span class=\"syntax_b_start\">(</span>\
-                <div class=\"syntax_in_brackets\">\
-                <span class=\"syntax_field\">ALTER</span><span class=\"syntax_operator\">&ge;</span><span class=\"syntax_number\">10</span>\
-                <span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span>\
-                <span class=\"syntax_field\">ALTER</span><span class=\"syntax_operator\">&lt;</span><span class=\"syntax_number\">19</span></div>\
-            <span class=\"syntax_b_end\">)</span></span></div>\
+            <span class=\"syntax_combinator syntax_c_and\">&amp;&amp;</span>\
+            <span class=\"syntax_field\">ALTER</span><span class=\"syntax_operator\">=</span>\
+            <span class=\"syntax_number\">10</span><span class=\"syntax_between\">..</span>\
+            <span class=\"syntax_number\">19</span></div>\
             <span class=\"syntax_b_end\">)</span></span>; \
             <span class=\"syntax_field\">ARTNR</span>,\
             <span class=\"syntax_field\">^NUMMER</span>,\
             <span class=\"syntax_field\">ALTER</span>"
         );
+        Ok(())
     }
 
     #[test]
-    fn parse_from_to_values() {
+    fn parse_from_to_values() -> Result<(), SuchError> {
         let s = SUCHBAR
             .exec(&ADMIN, "age=10..19")
             .expect("This should not panic!");
-        assert_eq!("  ( age>=10 AND age<19 )", s.to_sql(""));
+        assert_eq!("  age BETWEEN 10 AND 19", s.to_sql("")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, "age=10~19")
             .expect("This should not panic!");
-        assert_eq!("  ( age>=10 AND age<19 )", s.to_sql(""));
+        assert_eq!("  age BETWEEN 10 AND 19", s.to_sql("")?);
         let s = SUCHBAR
             .exec(&ADMIN, "ch='1.1.2020' .. '2023-12-31'")
             .expect("This should not panic!");
         assert_eq!(
-            "  ( changed>='2020-01-01' AND changed<'2023-12-31' )",
-            s.to_sql("")
+            "  changed BETWEEN '2020-01-01' AND '2023-12-31'",
+            s.to_sql("")?
         );
         let s = SUCHBAR
             .exec(&ADMIN, "ch=2020-01-01..2023-12-31")
             .expect("This should not panic!");
         assert_eq!(
-            "  ( changed>='2020-01-01' AND changed<'2023-12-31' )",
-            s.to_sql("")
+            "  changed BETWEEN '2020-01-01' AND '2023-12-31'",
+            s.to_sql("")?
         );
+        Ok(())
     }
 
     #[test]
-    fn parse_like_somewhere() {
+    fn parse_like_somewhere() -> Result<(), SuchError> {
         let s = SUCHBAR
             .exec(&ADMIN, "*Superman*")
             .expect("This should not panic!");
         assert_eq!(
             " WHERE ( artikelnummer ILIKE '%Superman%' OR positionstext ILIKE '%Superman%' )",
-            s.to_sql("WHERE")
+            s.to_sql("WHERE")?
         );
 
         let s = SUCHBAR
@@ -869,53 +875,55 @@ mod should {
         assert_eq!(
             " WHERE ( ( artikelnummer ILIKE '%Superman%' OR positionstext ILIKE '%Superman%' ) AND \
             ( artikelnummer ILIKE '%Batman%' OR positionstext ILIKE '%Batman%' ) )",
-            s.to_sql("WHERE")
+            s.to_sql("WHERE")?
         );
         // age = *5*
         let s = SUCHBAR
             .exec(&ADMIN, "artnr = *5*")
             .expect("This should not panic!");
-        assert_eq!(" WHERE artikelnummer ILIKE '%5%'", s.to_sql("WHERE"));
+        assert_eq!(" WHERE artikelnummer ILIKE '%5%'", s.to_sql("WHERE")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, "artnr = *öl*")
             .expect("This should not panic!");
-        assert_eq!(" WHERE artikelnummer ILIKE '%öl%'", s.to_sql("WHERE"));
+        assert_eq!(" WHERE artikelnummer ILIKE '%öl%'", s.to_sql("WHERE")?);
+        Ok(())
     }
 
     #[test]
-    fn parse_iso_dates() {
+    fn parse_iso_dates() -> Result<(), SuchError> {
         let s = SUCHBAR
             .exec(&ADMIN, r#"ch="2022-12-24""#)
             .expect("This should not panic!");
-        assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
+        assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, r#"ch=2022-1-2"#)
             .expect("This should not panic!");
-        assert_eq!(" WHERE changed='2022-01-02'", s.to_sql("WHERE"));
+        assert_eq!(" WHERE changed='2022-01-02'", s.to_sql("WHERE")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, r#"ch=24.12.2022"#)
             .expect("This should not panic!");
-        assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
+        assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE")?);
         let s = SUCHBAR
             .exec(&ADMIN, r#"ch=2.1.2022"#)
             .expect("This should not panic!");
-        assert_eq!(" WHERE changed='2022-01-02'", s.to_sql("WHERE"));
+        assert_eq!(" WHERE changed='2022-01-02'", s.to_sql("WHERE")?);
+        Ok(())
     }
 
     #[test]
-    fn parse_natural_language_dates() {
+    fn parse_natural_language_dates() -> Result<(), SuchError> {
         let s = SUCHBAR
             .exec(&ADMIN, "ch='1. Jan 2023'")
             .expect("This should not panic!");
-        assert_eq!(" WHERE changed='2023-01-01'", s.to_sql("WHERE"));
+        assert_eq!(" WHERE changed='2023-01-01'", s.to_sql("WHERE")?);
 
         let s = SUCHBAR
             .exec(&ADMIN, r#"ch=24.12.2022"#)
             .expect("This should not panic!");
-        assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE"));
+        assert_eq!(" WHERE changed='2022-12-24'", s.to_sql("WHERE")?);
 
         /*
         // tests may fail, when relativity changes.
@@ -934,20 +942,22 @@ mod should {
             s.to_sql("WHERE")
         );
         */
+        Ok(())
     }
 
     #[test]
-    fn list_sort_by_fields() {
+    fn list_sort_by_fields() -> Result<(), SuchError> {
         let s = SUCHBAR
             .exec(&ADMIN, ";age, art")
             .expect("This should not panic!");
-        assert_eq!(" ORDER BY age, artikelnummer", s.to_sql("WHERE"));
+        assert_eq!(" ORDER BY age, artikelnummer", s.to_sql("WHERE")?);
         let s = SUCHBAR
             .exec(&ADMIN, ";art, ^p, ch")
             .expect("This should not panic!");
         assert_eq!(
             " ORDER BY artikelnummer, price DESC, changed",
-            s.to_sql("WHERE")
+            s.to_sql("WHERE")?
         );
+        Ok(())
     }
 }

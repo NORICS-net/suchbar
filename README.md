@@ -79,15 +79,15 @@ const SUCHBAR: Suchbar = Suchbar::new(&[
 fn main() {
     let query = "plz=26440-26452 OR (Eisen AND sn!=Hammer*)";
     match SUCHBAR.exec(&AllowAllPermission(), query) {
-        Err(error) => println!("\n{error}"),
-        Ok(sr) => {
-            let sql = format!(
+        Err(error) => println!("\nParseError: {error}"),
+        Ok(sr) => match sr.to_sql("AND") {
+            Err(error) => println!("\nContentError: {error}"),
+            Ok(clause) => println!(
             "SELECT pa.shortname, pa.description, pa.taxnumber, \
                     pb.longname, pb.postcode AS INTEGER, pb.city, pb.street \
                     FROM partner_partner pa, partner_branchstore pb \
-                    WHERE pa.id = pb.cmrpartner{} LIMIT 20",
-            sr.to_sql("AND")
-            );
+                    WHERE pa.id = pb.cmrpartner{clause} LIMIT 20",
+            ),
         }
     }
 }

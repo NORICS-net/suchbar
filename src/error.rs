@@ -1,12 +1,15 @@
-use crate::error::SuchError::{Denied, LikeNotPossible, ParseError};
+use crate::SuchError::ErrorList;
+use crate::error::SuchError::{Denied, LikeNotPossible, ParseError, TypeNotComparable};
 use crate::suchbar::Rule;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug)]
 pub enum SuchError {
-    ParseError(String),
-    LikeNotPossible,
     Denied,
+    LikeNotPossible,
+    ParseError(String),
+    TypeNotComparable,
+    ErrorList(Vec<Self>),
 }
 
 impl From<pest::error::Error<Rule>> for SuchError {
@@ -21,6 +24,11 @@ impl Display for SuchError {
             ParseError(str) => write!(f, "{str}"),
             LikeNotPossible => write!(f, "LIKE not possible"),
             Denied => write!(f, "DENIED"),
+            TypeNotComparable => write!(f, "Not Comparable"),
+            ErrorList(list) => {
+                list.iter().for_each(|e| write!(f, "{e}").unwrap());
+                Ok(())
+            }
         }
     }
 }

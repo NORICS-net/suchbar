@@ -2,7 +2,7 @@
 name = "suchbar"
 description = "suchbar - enduser-learnable-language for database queries."
 authors = ["Micha Glave <mig@xilab.net>"]
-version = "1.0.6"
+version = "1.1.0"
 edition = "2024"
 license = "MIT"
 readme = "README.md"
@@ -17,6 +17,7 @@ pest = "2.8"
 pest_derive = "2.8"
 permeable = "0.3"
 timewarp = "0.4"
+itertools = "0.14.0"
 
 [dev-dependencies]
-similar-asserts  = "1.7"
+similar-asserts  = "2.0"

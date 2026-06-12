@@ -2,7 +2,8 @@ use self::DbType::{BOOL, DATE, INTEGER, NUMERIC, TEXT, TIMESTAMP, VARCHAR};
 use crate::comp_op::CompOp;
 use crate::error::SuchError;
 use crate::error::SuchError::ParseError;
-use crate::sql_term::Style;
+use crate::sql_term::Style::{self, Compact, Html, Pretty, Url};
+use timewarp::Direction::{From, To};
 use timewarp::{Direction, Doy, date_matcher};
 
 fn try_bool(str: &str) -> Result<bool, SuchError> {
@@ -16,12 +17,23 @@ fn try_bool(str: &str) -> Result<bool, SuchError> {
 
 fn timestamp_checker(str: String) -> Result<String, SuchError> {
     if str.chars().any(|a| match a {
-        '-' | ':' | ' ' | '%' => false,
+        '-' | ':' | ' ' | '%' | '.' => false,
+        _ => !a.is_ascii_digit(),
+    }) {
+        Err(ParseError(String::from("No timestamp")))
+    } else if str.len() == 10 {
+        Ok(str + " 00:00:00")
+    } else {
+        Ok(str)
+    }
+}
+
+fn date_checker(str: String) -> Result<String, SuchError> {
+    if str.chars().any(|a| match a {
+        '-' | ':' | ' ' | '%' | '.' => false,
         _ => !a.is_ascii_digit(),
     }) {
         Err(ParseError(String::from("No date")))
-    } else if str.len() == 10 {
-        Ok(str + " 00:00:00")
     } else {
         Ok(str)
     }
@@ -97,71 +109,76 @@ impl DbField {
         }
     }
 
-    pub fn as_text(&self, style: Style, eq: CompOp, val: &str) -> String {
-        let escaped = val
-            .replace(r#"\""#, r#"""#)
-            .replace(r#"\'"#, r#"'"#)
-            .replace(r#"""#, r#"\""#);
+    pub fn try_sql_between(&self, from: &str, to: &str) -> Result<String, SuchError> {
+        let Self {
+            db_name, db_type, ..
+        } = self;
+        match db_type {
+            VARCHAR(_) | TEXT => Ok(format!(
+                "{db_name} BETWEEN '{}' AND '{}'",
+                db_type.sql_safe(from)?,
+                db_type.sql_safe(to)?
+            )),
+            NUMERIC(_, _) | INTEGER(_, _) => Ok(format!(
+                "{db_name} BETWEEN {} AND {}",
+                db_type.sql_safe(from)?,
+                db_type.sql_safe(to)?
+            )),
+            DATE | TIMESTAMP => {
+                let from = date_matcher(Doy::today(), From, from).map(|d| d.start())?;
+                let to = date_matcher(Doy::today(), To, to).map(|d| d.start())?;
+                Ok(format!("{db_name} BETWEEN '{from:#}' AND '{to:#}'",))
+            }
+            BOOL => Err(SuchError::TypeNotComparable),
+        }
+    }
+
+    pub fn val(&self, style: Style, val: &str) -> String {
+        if !self.is_text() {
+            return val.to_string();
+        }
+        let escaped = val.replace(r#"\""#, r#"""#).replace(r#"\'"#, r#"'"#);
+        let in_ticks = val.contains(" ")
+            | val.contains("&")
+            | val.contains("|")
+            | val.contains("=")
+            | val.contains("'")
+            | val.contains("\"");
         match style {
-            Style::Html => {
-                let name = self.alias[0].to_uppercase();
-                if self.is_text() {
-                    format!(
-                        r#"<span class="syntax_field">{name}</span><span class="syntax_operator">{}</span><span class="syntax_text">"{escaped}"</span>"#,
-                        eq.as_html()
-                    )
-                } else {
-                    format!(
-                        r#"<span class="syntax_field">{name}</span><span class="syntax_operator">{}</span><span class="{}">{val}</span>"#,
-                        eq.as_html(),
-                        self.db_type.css_class()
-                    )
-                }
+            Html | Pretty => format!(r#""{}""#, escaped.replace(r#"""#, r#"\""#)),
+            Compact if in_ticks => format!(r#""{}""#, escaped.replace(r#"""#, r#"\""#)),
+            Url if in_ticks => format!("'{}'", escaped.replace(r#"'"#, r#"\'"#)),
+            _ => val.to_string(),
+        }
+    }
+
+    pub fn as_text(&self, style: Style, eq: CompOp, val: &str) -> String {
+        let name = self.name(style);
+        let escaped = self.val(style, val);
+        match style {
+            Html => {
+                let name = name.to_uppercase();
+                format!(
+                    r#"<span class="syntax_field">{name}</span><span class="syntax_operator">{}</span><span class="{}">{escaped}</span>"#,
+                    eq.as_html(),
+                    self.db_type.css_class(),
+                )
             }
-            Style::Url => {
-                let name = self.shortest_alias().to_uppercase();
-                let escaped = val
-                    .replace(r#"\'"#, r#"'"#)
-                    .replace(r#"\""#, r#"""#)
-                    .replace(r#"'"#, r#"\'"#);
-                if self.is_text()
-                    && (val.contains(' ')
-                        || val.contains('&')
-                        || val.contains('|')
-                        || val.contains('='))
-                {
-                    format!("{name}{eq}'{escaped}'")
-                } else {
-                    format!("{name}{eq}{escaped}")
-                }
-            }
-            Style::Compact => {
-                let name = self.shortest_alias();
-                if self.is_text()
-                    && (val.contains(' ')
-                        || val.contains('&')
-                        || val.contains('|')
-                        || val.contains('='))
-                {
-                    format!("{name}{eq}\"{escaped}\"")
-                } else {
-                    format!("{name}{eq}{val}")
-                }
-            }
-            _ => {
-                let name = self.alias[0];
-                if self.is_text() {
-                    format!("{name}{eq}\"{escaped}\"")
-                } else {
-                    format!("{name}{eq}{val}")
-                }
-            }
+            _ => format!("{name}{eq}{escaped}"),
         }
     }
 
     #[must_use]
     pub const fn is_text(&self) -> bool {
         matches!(self.db_type, TEXT | VARCHAR(_))
+    }
+
+    pub fn name(&self, style: Style) -> String {
+        match style {
+            Html | Pretty => self.alias[0].to_string(),
+            Url => self.shortest_alias().to_uppercase(),
+            Compact => self.shortest_alias(),
+        }
     }
 
     /// Returns all aliases by which this `DbField` can be used.
@@ -227,14 +244,18 @@ impl DbType {
     fn checker(&self, val: String) -> Result<String, SuchError> {
         use std::str::FromStr;
         match self {
-            VARCHAR(a) if val.len() > *a => Err(ParseError(format!("Value: '{val}' to long"))),
+            VARCHAR(a) if val.len() > *a => Err(ParseError(format!(
+                "Value: '{val}' is longer than {a}-char-column."
+            ))),
             VARCHAR(_) | TEXT => Ok(val),
             TIMESTAMP => timestamp_checker(val),
+            DATE => date_checker(val),
             INTEGER(min, max) => {
                 let c_val = val.replace(',', ".");
                 match u64::from_str(&c_val.replace('%', "")) {
                     Ok(d) if d <= *max && d >= *min => Ok(c_val),
-                    _ => Err(ParseError(format!("No Integer value '{val}'"))),
+                    Ok(_) => Err(ParseError(format!("Outside range [{min}..{max}]`."))),
+                    _ => Err(ParseError(format!("No Integer value '{val}'."))),
                 }
             }
             NUMERIC(len, _) => {
@@ -242,11 +263,14 @@ impl DbType {
                 let number = c_val.replace('%', "");
                 match f64::from_str(&number) {
                     Ok(_) if number.len() < (len + 1) as usize => Ok(c_val),
-                    _ => Err(ParseError(format!("No Numeric value '{val}'"))),
+                    Ok(_) => Err(ParseError(format!(
+                        "Value `{c_val}` to large for this `{len}`-digit column."
+                    ))),
+                    _ => Err(ParseError(format!("No Numeric value '{val}'."))),
                 }
             }
             _ => Err(ParseError(format!(
-                "Don't know how to handle: {self:?} = '{val}'"
+                "Don't know how to handle: {self:?} = '{val}'."
             ))),
         }
     }
